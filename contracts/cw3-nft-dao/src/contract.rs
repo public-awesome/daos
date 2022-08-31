@@ -110,23 +110,25 @@ pub fn execute(
         ExecuteMsg::MemberChangedHook(MemberChangedHookMsg { diffs }) => {
             Ok(execute_membership_hook(deps, env, info, diffs)?)
         }
-        ExecuteMsg::ReceiveNft(msg) => execute_receive_nft(deps, info, msg),
+        ExecuteMsg::ReceiveNft(msg) => execute_receive_nft(deps, env, info, msg),
     }
 }
 
 pub fn execute_receive_nft(
     deps: DepsMut,
+    env: Env,
     info: MessageInfo,
     wrapper: Cw721ReceiveMsg,
 ) -> Result<Response, ContractError> {
-    // TODO: need to set allowance to allow this contract to transfer?
+    let sending_collection = info.sender;
+    let dao_address = env.contract.address;
 
-    // mint the received nft into the internal vault
+    // Mint the received NFT into the internal vault.
+    // Because the owner is this contract, we don't need any allowance to send it again.
     let mint_msg = Cw721BaseMintMsg::<Option<Empty>> {
         token_id: wrapper.token_id.clone(),
-        owner: wrapper.sender.clone(),
-        // store the sending collection contract address
-        token_uri: Some(info.sender.to_string()),
+        owner: dao_address.to_string(),
+        token_uri: Some(sending_collection.to_string()),
         extension: None,
     };
     let msg = Cw721BaseExecuteMsg::Mint(mint_msg);
