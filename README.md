@@ -4,7 +4,7 @@
 
 ### cw3-nft-dao
 
-A cw3-compliant DAO contract that includes and NFT vault.
+A cw3-compliant DAO contract that includes an NFT vault.
 
 ### dao-minter
 
