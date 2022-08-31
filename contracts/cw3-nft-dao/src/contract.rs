@@ -59,7 +59,6 @@ pub fn instantiate(
     };
     CONFIG.save(deps.storage, &cfg)?;
 
-    // TODO: just pass in a cw721 intead of creating here
     // create vault
     let init_msg = Cw721BaseInstantiateMsg {
         name: "DAO-NFT-Vault".to_string(),
