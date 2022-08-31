@@ -117,6 +117,9 @@ pub fn execute_receive_nft(
     deps: DepsMut,
     wrapper: Cw721ReceiveMsg,
 ) -> Result<Response, ContractError> {
+    // TODO: This should be enough to identify the NFT in the sending contract.
+    // May need to add a custom message if not.
+
     // mint the received nft into the internal vault
     let mint_msg = Cw721BaseMintMsg::<Option<Empty>> {
         token_id: wrapper.token_id.clone(),
