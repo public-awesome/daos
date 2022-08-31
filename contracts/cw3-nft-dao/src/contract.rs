@@ -59,6 +59,7 @@ pub fn instantiate(
     };
     CONFIG.save(deps.storage, &cfg)?;
 
+    // TODO: just pass in a cw721 intead of creating here
     // create vault
     let init_msg = Cw721BaseInstantiateMsg {
         name: "DAO-NFT-Vault".to_string(),
@@ -109,22 +110,23 @@ pub fn execute(
         ExecuteMsg::MemberChangedHook(MemberChangedHookMsg { diffs }) => {
             Ok(execute_membership_hook(deps, env, info, diffs)?)
         }
-        ExecuteMsg::ReceiveNft(msg) => execute_receive_nft(deps, msg),
+        ExecuteMsg::ReceiveNft(msg) => execute_receive_nft(deps, info, msg),
     }
 }
 
 pub fn execute_receive_nft(
     deps: DepsMut,
+    info: MessageInfo,
     wrapper: Cw721ReceiveMsg,
 ) -> Result<Response, ContractError> {
-    // TODO: This should be enough to identify the NFT in the sending contract.
-    // May need to add a custom message if not.
+    // TODO: need to set allowance to allow this contract to transfer?
 
     // mint the received nft into the internal vault
     let mint_msg = Cw721BaseMintMsg::<Option<Empty>> {
         token_id: wrapper.token_id.clone(),
         owner: wrapper.sender.clone(),
-        token_uri: None,
+        // store the sending collection contract address
+        token_uri: Some(info.sender.to_string()),
         extension: None,
     };
     let msg = Cw721BaseExecuteMsg::Mint(mint_msg);
