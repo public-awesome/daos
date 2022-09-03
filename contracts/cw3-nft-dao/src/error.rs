@@ -14,12 +14,14 @@ pub enum ContractError {
     #[error("{0}")]
     Threshold(#[from] ThresholdError),
 
-    #[error("Unauthorized")]
-    Unauthorized {},
-
+    // #[error("Unauthorized")]
+    // Unauthorized {},
     #[error("Invalid reply ID")]
     InvalidReplyID {},
 
     #[error("Reply error")]
     ReplyOnSuccess {},
+
+    #[error("Wrong expiration option")]
+    WrongExpiration {},
 }
