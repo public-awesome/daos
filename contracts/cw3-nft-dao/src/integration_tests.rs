@@ -6,7 +6,8 @@ mod tests {
         ContractError,
     };
     use cosmwasm_std::{
-        coin, coins, Addr, BankMsg, BlockInfo, Coin, CosmosMsg, Decimal, Empty, Timestamp,
+        coin, coins, to_binary, Addr, BankMsg, BlockInfo, Coin, CosmosMsg, Decimal, Empty,
+        Timestamp,
     };
     use cw2::{query_contract_info, ContractVersion};
     use cw3::{
@@ -17,6 +18,10 @@ mod tests {
     use cw3_flex_multisig::state::Executor as Cw3Executor;
     use cw4::{Cw4ExecuteMsg, Member, MemberChangedHookMsg, MemberDiff};
     use cw4_group::helpers::Cw4GroupContract;
+    use cw721_base::{
+        msg::{ExecuteMsg as Cw721ExecuteMsg, InstantiateMsg as Cw721InstantiateMsg},
+        Extension, MintMsg,
+    };
     use cw_multi_test::{next_block, App, AppBuilder, Contract, ContractWrapper, Executor};
     use cw_utils::{Duration, Expiration, Threshold, ThresholdResponse};
 
@@ -1548,4 +1553,116 @@ mod tests {
             .unwrap();
         assert_eq!(prop_status(&app), Status::Passed);
     }
+
+    // NFT tests ------------------------------------------------------------------
+
+    const TOKEN_ID: &str = "token0001";
+
+    #[track_caller]
+    fn instantiate_collection(app: &mut App) -> Addr {
+        let collection_code_id = app.store_code(contract_cw721());
+        let msg = Cw721InstantiateMsg {
+            name: "My NFTs".to_string(),
+            symbol: "NFT".to_string(),
+            minter: "minter".to_string(),
+        };
+        app.instantiate_contract(
+            collection_code_id,
+            Addr::unchecked(OWNER),
+            &msg,
+            &[],
+            "collection",
+            None,
+        )
+        .unwrap()
+    }
+
+    #[track_caller]
+    fn setup_test_collection(app: &mut App) -> Addr {
+        let collection_addr = instantiate_collection(app);
+        app.update_block(next_block);
+
+        // mint an NFT
+        let token_id = TOKEN_ID.to_string();
+        let token_uri = "https://www.merriam-webster.com/dictionary/petrify".to_string();
+
+        let mint_msg = Cw721ExecuteMsg::Mint::<Extension, Extension>(MintMsg::<Extension> {
+            token_id,
+            owner: OWNER.into(),
+            token_uri: Some(token_uri),
+            extension: None,
+        });
+
+        app.execute_contract(
+            Addr::unchecked(OWNER),
+            collection_addr.clone(),
+            &mint_msg,
+            &[],
+        )
+        .unwrap();
+
+        collection_addr
+    }
+
+    #[test]
+    fn send_nft_to_dao_works() {
+        let init_funds = coins(10, "BTC");
+        let mut app = mock_app(&init_funds);
+
+        let collection_addr = setup_test_collection(&mut app);
+
+        let threshold = Threshold::ThresholdQuorum {
+            threshold: Decimal::percent(51),
+            quorum: Decimal::percent(1),
+        };
+        let voting_period = Duration::Time(2000000);
+        let (dao_addr, _) =
+            setup_test_case(&mut app, threshold, voting_period, init_funds, true, None);
+
+        // ensure we have cash to cover the proposal
+        let contract_bal = app.wrap().query_balance(&dao_addr, "BTC").unwrap();
+        assert_eq!(contract_bal, coin(10, "BTC"));
+
+        // send NFT from collection to DAO
+        let msg = to_binary("You now have the melting power").unwrap();
+        let send_msg: Cw721ExecuteMsg<Extension, Extension> = Cw721ExecuteMsg::SendNft {
+            contract: dao_addr.to_string(),
+            token_id: TOKEN_ID.to_string(),
+            msg,
+        };
+        app.execute_contract(Addr::unchecked(OWNER), collection_addr, &send_msg, &[])
+            .unwrap();
+
+        // TODO: check size of DAO NFT vault to verify NFT was received
+    }
+
+    // fn proposal_nft_transfer_info() -> (Vec<CosmosMsg<Empty>>, String, String) {
+    //     // TODO: To transfer and NFT via a proposal, we need two messages.
+    //     // 1. A send() message to the collection contract with the NFT
+    //     // 2. A transfer() includeded in the send to transfer ownership to the recipient
+
+    //     let transfer_msg = Cw721ExecuteMsg::TransferNft {
+    //         recipient: SOMEBODY.into(),
+    //         token_id: TOKEN_ID.into(),
+    //     };
+
+    //     // TODO: how do you convert a Cw721ExecuteMsg to a CosmosMsg?
+
+    //     let msgs = vec![transfer_msg.into()];
+    //     let title = "Transfer NFT".to_string();
+    //     let description = "Should we transfer this?".to_string();
+    //     (msgs, title, description)
+    // }
+
+    // fn transfer_nft_proposal() -> ExecuteMsg {
+    //     let (msgs, title, description) = proposal_info();
+    //     ExecuteMsg::Propose {
+    //         title,
+    //         description,
+    //         msgs,
+    //         latest: None,
+    //     }
+    // }
+
+    fn proposal_nft_transfer_works() {}
 }
