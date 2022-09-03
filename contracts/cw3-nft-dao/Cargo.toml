@@ -1,7 +1,7 @@
 [package]
 name = "cw3-nft-dao"
 version = "0.1.0"
-authors = ["Shane Vitarana <shanev@gmail.com>"]
+authors = ["Shane Vitarana <s@noreply.publicawesome.com>"]
 edition = "2021"
 
 exclude = [
@@ -62,4 +62,3 @@ cw721-base = { git = "https://github.com/CosmWasm/cw-nfts", features = [
 cosmwasm-schema = "1.0.0"
 cw-multi-test = "0.14.0"
 cw4-group = "0.14.0"
-# cw721-base = { git = "https://github.com/CosmWasm/cw-nfts" }

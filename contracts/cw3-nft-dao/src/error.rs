@@ -14,8 +14,6 @@ pub enum ContractError {
     #[error("{0}")]
     Threshold(#[from] ThresholdError),
 
-    // #[error("Unauthorized")]
-    // Unauthorized {},
     #[error("Invalid reply ID")]
     InvalidReplyID {},
 
