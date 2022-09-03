@@ -18,7 +18,7 @@ use cw3_flex_multisig::ContractError as Cw3FlexMultisigError;
 use cw4::{Cw4Contract, MemberChangedHookMsg};
 use cw721::Cw721ReceiveMsg;
 use cw721_base::{
-    ExecuteMsg as Cw721BaseExecuteMsg, InstantiateMsg as Cw721BaseInstantiateMsg,
+    ExecuteMsg as Cw721BaseExecuteMsg, Extension, InstantiateMsg as Cw721BaseInstantiateMsg,
     MintMsg as Cw721BaseMintMsg,
 };
 use cw_storage_plus::Bound;
@@ -29,8 +29,8 @@ use crate::msg::{ExecuteMsg, InstantiateMsg, QueryMsg, VaultResponse};
 use crate::state::VAULT;
 
 // version info for migration info
-const CONTRACT_NAME: &str = "crates.io:cw3-nft-dao";
-const CONTRACT_VERSION: &str = env!("CARGO_PKG_VERSION");
+pub const CONTRACT_NAME: &str = "crates.io:cw3-nft-dao";
+pub const CONTRACT_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 const INIT_VAULT_REPLY_ID: u64 = 1;
 
@@ -124,13 +124,13 @@ pub fn execute_receive_nft(
 
     // Mint the received NFT into the internal vault.
     // Because the owner is this contract, we don't need any allowance to send it again.
-    let mint_msg = Cw721BaseMintMsg::<Option<Empty>> {
+    let mint_msg = Cw721BaseMintMsg::<Extension> {
         token_id: wrapper.token_id.clone(),
         owner: dao_address.to_string(),
         token_uri: Some(sending_collection.to_string()),
         extension: None,
     };
-    let msg = Cw721BaseExecuteMsg::Mint(mint_msg);
+    let msg = Cw721BaseExecuteMsg::Mint::<Extension, Extension>(mint_msg);
     let msg = WasmMsg::Execute {
         contract_addr: VAULT.load(deps.storage)?.to_string(),
         msg: to_binary(&msg)?,

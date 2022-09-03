@@ -3,7 +3,7 @@ use cw3_flex_multisig::ContractError as Cw3FlexMultisigError;
 use cw_utils::ThresholdError;
 use thiserror::Error;
 
-#[derive(Error, Debug)]
+#[derive(Error, PartialEq, Debug)]
 pub enum ContractError {
     #[error("{0}")]
     Std(#[from] StdError),
