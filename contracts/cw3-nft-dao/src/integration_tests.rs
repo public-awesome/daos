@@ -5,9 +5,14 @@ mod tests {
         msg::{ExecuteMsg, InstantiateMsg, QueryMsg},
         ContractError,
     };
-    use cosmwasm_std::{coins, Addr, BankMsg, BlockInfo, Coin, CosmosMsg, Decimal, Empty};
+    use cosmwasm_std::{
+        coins, Addr, BankMsg, BlockInfo, Coin, CosmosMsg, Decimal, Empty, Timestamp,
+    };
     use cw2::{query_contract_info, ContractVersion};
-    use cw3::{ProposalListResponse, ProposalResponse, Status, VoterDetail, VoterListResponse};
+    use cw3::{
+        ProposalListResponse, ProposalResponse, Status, Vote, VoteInfo, VoteListResponse,
+        VoteResponse, VoterDetail, VoterListResponse,
+    };
     use cw3_flex_multisig::error::ContractError as Cw3FlexMultisigError;
     use cw3_flex_multisig::state::Executor as Cw3Executor;
     use cw4::{Cw4ExecuteMsg, Member};
@@ -484,5 +489,269 @@ mod tests {
             },
         };
         assert_eq!(&expected, &res.proposals[0]);
+    }
+
+    fn get_tally(app: &App, flex_addr: &str, proposal_id: u64) -> u64 {
+        // Get all the voters on the proposal
+        let voters = QueryMsg::ListVotes {
+            proposal_id,
+            start_after: None,
+            limit: None,
+        };
+        let votes: VoteListResponse = app.wrap().query_wasm_smart(flex_addr, &voters).unwrap();
+        // Sum the weights of the Yes votes to get the tally
+        votes
+            .votes
+            .iter()
+            .filter(|&v| v.vote == Vote::Yes)
+            .map(|v| v.weight)
+            .sum()
+    }
+
+    fn unexpire(voting_period: Duration) -> impl Fn(&mut BlockInfo) {
+        move |block: &mut BlockInfo| {
+            match voting_period {
+                Duration::Time(duration) => {
+                    block.time =
+                        Timestamp::from_nanos(block.time.nanos() - (duration * 1_000_000_000));
+                }
+                Duration::Height(duration) => block.height -= duration,
+            };
+        }
+    }
+
+    #[test]
+    fn test_vote_works() {
+        let init_funds = coins(10, "BTC");
+        let mut app = mock_app(&init_funds);
+
+        let threshold = Threshold::ThresholdQuorum {
+            threshold: Decimal::percent(51),
+            quorum: Decimal::percent(1),
+        };
+        let voting_period = Duration::Time(2000000);
+        let (dao_addr, _) =
+            setup_test_case(&mut app, threshold, voting_period, init_funds, false, None);
+
+        // create proposal with 0 vote power
+        let proposal = pay_somebody_proposal();
+        let res = app
+            .execute_contract(Addr::unchecked(OWNER), dao_addr.clone(), &proposal, &[])
+            .unwrap();
+
+        // Get the proposal id from the logs
+        let proposal_id: u64 = res.custom_attrs(1)[2].value.parse().unwrap();
+
+        // Owner with 0 voting power cannot vote
+        let yes_vote = ExecuteMsg::Vote {
+            proposal_id,
+            vote: Vote::Yes,
+        };
+        let err = app
+            .execute_contract(Addr::unchecked(OWNER), dao_addr.clone(), &yes_vote, &[])
+            .unwrap_err();
+        assert_eq!(
+            ContractError::Cw3FlexMultisig(Cw3FlexMultisigError::Unauthorized {}),
+            err.downcast().unwrap()
+        );
+
+        // Only voters can vote
+        let err = app
+            .execute_contract(Addr::unchecked(SOMEBODY), dao_addr.clone(), &yes_vote, &[])
+            .unwrap_err();
+        assert_eq!(
+            ContractError::Cw3FlexMultisig(Cw3FlexMultisigError::Unauthorized {}),
+            err.downcast().unwrap()
+        );
+
+        // But voter1 can
+        let res = app
+            .execute_contract(Addr::unchecked(VOTER1), dao_addr.clone(), &yes_vote, &[])
+            .unwrap();
+        assert_eq!(
+            res.custom_attrs(1),
+            [
+                ("action", "vote"),
+                ("sender", VOTER1),
+                ("proposal_id", proposal_id.to_string().as_str()),
+                ("status", "Open"),
+            ],
+        );
+
+        // VOTER1 cannot vote again
+        let err = app
+            .execute_contract(Addr::unchecked(VOTER1), dao_addr.clone(), &yes_vote, &[])
+            .unwrap_err();
+        assert_eq!(
+            ContractError::Cw3FlexMultisig(Cw3FlexMultisigError::AlreadyVoted {}),
+            err.downcast().unwrap()
+        );
+
+        // No/Veto votes have no effect on the tally
+        // Compute the current tally
+        let tally = get_tally(&app, dao_addr.as_ref(), proposal_id);
+        assert_eq!(tally, 1);
+
+        // Cast a No vote
+        let no_vote = ExecuteMsg::Vote {
+            proposal_id,
+            vote: Vote::No,
+        };
+        let _ = app
+            .execute_contract(Addr::unchecked(VOTER2), dao_addr.clone(), &no_vote, &[])
+            .unwrap();
+
+        // Cast a Veto vote
+        let veto_vote = ExecuteMsg::Vote {
+            proposal_id,
+            vote: Vote::Veto,
+        };
+        let _ = app
+            .execute_contract(Addr::unchecked(VOTER3), dao_addr.clone(), &veto_vote, &[])
+            .unwrap();
+
+        // Tally unchanged
+        assert_eq!(tally, get_tally(&app, dao_addr.as_ref(), proposal_id));
+
+        let err = app
+            .execute_contract(Addr::unchecked(VOTER3), dao_addr.clone(), &yes_vote, &[])
+            .unwrap_err();
+        assert_eq!(
+            ContractError::Cw3FlexMultisig(Cw3FlexMultisigError::AlreadyVoted {}),
+            err.downcast().unwrap()
+        );
+
+        // Expired proposals cannot be voted
+        app.update_block(expire(voting_period));
+        let err = app
+            .execute_contract(Addr::unchecked(VOTER4), dao_addr.clone(), &yes_vote, &[])
+            .unwrap_err();
+        assert_eq!(
+            ContractError::Cw3FlexMultisig(Cw3FlexMultisigError::Expired {}),
+            err.downcast().unwrap()
+        );
+        app.update_block(unexpire(voting_period));
+
+        // Powerful voter supports it, so it passes
+        let res = app
+            .execute_contract(Addr::unchecked(VOTER4), dao_addr.clone(), &yes_vote, &[])
+            .unwrap();
+        assert_eq!(
+            res.custom_attrs(1),
+            [
+                ("action", "vote"),
+                ("sender", VOTER4),
+                ("proposal_id", proposal_id.to_string().as_str()),
+                ("status", "Passed"),
+            ],
+        );
+
+        // Passed proposals can still be voted (while they are not expired or executed)
+        let res = app
+            .execute_contract(Addr::unchecked(VOTER5), dao_addr.clone(), &yes_vote, &[])
+            .unwrap();
+        // // Verify
+        // assert_eq!(
+        //     res.custom_attrs(1),
+        //     [
+        //         ("action", "vote"),
+        //         ("sender", VOTER5),
+        //         ("proposal_id", proposal_id.to_string().as_str()),
+        //         ("status", "Passed")
+        //     ]
+        // );
+
+        // // query individual votes
+        // // initial (with 0 weight)
+        // let voter = OWNER.into();
+        // let vote: VoteResponse = app
+        //     .wrap()
+        //     .query_wasm_smart(&dao_addr, &QueryMsg::Vote { proposal_id, voter })
+        //     .unwrap();
+        // assert_eq!(
+        //     vote.vote.unwrap(),
+        //     VoteInfo {
+        //         proposal_id,
+        //         voter: OWNER.into(),
+        //         vote: Vote::Yes,
+        //         weight: 0
+        //     }
+        // );
+
+        // // nay sayer
+        // let voter = VOTER2.into();
+        // let vote: VoteResponse = app
+        //     .wrap()
+        //     .query_wasm_smart(&dao_addr, &QueryMsg::Vote { proposal_id, voter })
+        //     .unwrap();
+        // assert_eq!(
+        //     vote.vote.unwrap(),
+        //     VoteInfo {
+        //         proposal_id,
+        //         voter: VOTER2.into(),
+        //         vote: Vote::No,
+        //         weight: 2
+        //     }
+        // );
+
+        // // non-voter
+        // let voter = SOMEBODY.into();
+        // let vote: VoteResponse = app
+        //     .wrap()
+        //     .query_wasm_smart(&dao_addr, &QueryMsg::Vote { proposal_id, voter })
+        //     .unwrap();
+        // assert!(vote.vote.is_none());
+
+        // // create proposal with 0 vote power
+        // let proposal = pay_somebody_proposal();
+        // let res = app
+        //     .execute_contract(Addr::unchecked(OWNER), dao_addr.clone(), &proposal, &[])
+        //     .unwrap();
+
+        // // Get the proposal id from the logs
+        // let proposal_id: u64 = res.custom_attrs(1)[2].value.parse().unwrap();
+
+        // // Cast a No vote
+        // let no_vote = ExecuteMsg::Vote {
+        //     proposal_id,
+        //     vote: Vote::No,
+        // };
+        // let _ = app
+        //     .execute_contract(Addr::unchecked(VOTER2), dao_addr.clone(), &no_vote, &[])
+        //     .unwrap();
+
+        // // Powerful voter opposes it, so it rejects
+        // let res = app
+        //     .execute_contract(Addr::unchecked(VOTER4), dao_addr.clone(), &no_vote, &[])
+        //     .unwrap();
+
+        // assert_eq!(
+        //     res.custom_attrs(1),
+        //     [
+        //         ("action", "vote"),
+        //         ("sender", VOTER4),
+        //         ("proposal_id", proposal_id.to_string().as_str()),
+        //         ("status", "Rejected"),
+        //     ],
+        // );
+
+        // // Rejected proposals can still be voted (while they are not expired)
+        // let yes_vote = ExecuteMsg::Vote {
+        //     proposal_id,
+        //     vote: Vote::Yes,
+        // };
+        // let res = app
+        //     .execute_contract(Addr::unchecked(VOTER5), dao_addr, &yes_vote, &[])
+        //     .unwrap();
+
+        // assert_eq!(
+        //     res.custom_attrs(1),
+        //     [
+        //         ("action", "vote"),
+        //         ("sender", VOTER5),
+        //         ("proposal_id", proposal_id.to_string().as_str()),
+        //         ("status", "Rejected"),
+        //     ],
+        // );
     }
 }
