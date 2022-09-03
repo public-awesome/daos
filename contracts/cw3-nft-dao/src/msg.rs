@@ -45,6 +45,7 @@ pub enum ExecuteMsg {
     MemberChangedHook(MemberChangedHookMsg),
     /// Receive NFT
     ReceiveNft(Cw721ReceiveMsg),
+    // TODO: add a SendNFT message that sends from the vault?
 }
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, JsonSchema, Debug)]

@@ -1,7 +1,5 @@
 #[cfg(test)]
 mod tests {
-    use std::f32::MIN;
-
     use crate::{
         contract::{CONTRACT_NAME, CONTRACT_VERSION},
         msg::{ExecuteMsg, InstantiateMsg, QueryMsg, VaultResponse},
@@ -9,7 +7,7 @@ mod tests {
     };
     use cosmwasm_std::{
         coin, coins, to_binary, Addr, BankMsg, BlockInfo, Coin, CosmosMsg, Decimal, Empty,
-        Timestamp,
+        Timestamp, WasmMsg,
     };
     use cw2::{query_contract_info, ContractVersion};
     use cw3::{
@@ -27,10 +25,6 @@ mod tests {
     };
     use cw_multi_test::{next_block, App, AppBuilder, Contract, ContractWrapper, Executor};
     use cw_utils::{Duration, Expiration, Threshold, ThresholdResponse};
-
-    // const USER: &str = "USER";
-    // const ADMIN: &str = "ADMIN";
-    // const NATIVE_DENOM: &str = "denom";
 
     const OWNER: &str = "admin0001";
     const VOTER1: &str = "voter0001";
@@ -126,7 +120,7 @@ mod tests {
         max_voting_period: Duration,
         init_funds: Vec<Coin>,
         multisig_as_group_admin: bool,
-    ) -> (Addr, Addr) {
+    ) -> (Addr, Addr, Addr) {
         setup_test_case(
             app,
             Threshold::AbsoluteCount {
@@ -147,7 +141,7 @@ mod tests {
         init_funds: Vec<Coin>,
         multisig_as_group_admin: bool,
         executor: Option<Cw3Executor>,
-    ) -> (Addr, Addr) {
+    ) -> (Addr, Addr, Addr) {
         // 1. Instantiate group contract with members (and OWNER as admin)
         let members = vec![
             member(OWNER, 0),
@@ -185,12 +179,18 @@ mod tests {
             app.update_block(next_block);
         }
 
+        // get vault address
+        let res: VaultResponse = app
+            .wrap()
+            .query_wasm_smart(&dao_addr, &QueryMsg::Vault {})
+            .unwrap();
+
         // Bonus: set some funds on the multisig contract for future proposals
         if !init_funds.is_empty() {
             app.send_tokens(Addr::unchecked(OWNER), dao_addr.clone(), &init_funds)
                 .unwrap();
         }
-        (dao_addr, group_addr)
+        (dao_addr, group_addr, Addr::unchecked(res.addr))
     }
 
     fn proposal_info() -> (Vec<CosmosMsg<Empty>>, String, String) {
@@ -330,7 +330,7 @@ mod tests {
 
         let required_weight = 4;
         let voting_period = Duration::Time(2000000);
-        let (dao_addr, _) =
+        let (dao_addr, _, _) =
             setup_test_case_fixed(&mut app, required_weight, voting_period, init_funds, false);
 
         let proposal = pay_somebody_proposal();
@@ -415,7 +415,7 @@ mod tests {
             threshold: Decimal::percent(80),
             quorum: Decimal::percent(20),
         };
-        let (dao_addr, _) =
+        let (dao_addr, _, _) =
             setup_test_case(&mut app, threshold, voting_period, init_funds, false, None);
 
         // create proposal with 1 vote power
@@ -536,7 +536,7 @@ mod tests {
             quorum: Decimal::percent(1),
         };
         let voting_period = Duration::Time(2000000);
-        let (dao_addr, _) =
+        let (dao_addr, _, _) =
             setup_test_case(&mut app, threshold, voting_period, init_funds, false, None);
 
         // create proposal with 0 vote power
@@ -746,7 +746,7 @@ mod tests {
             quorum: Decimal::percent(1),
         };
         let voting_period = Duration::Time(2000000);
-        let (dao_addr, _) =
+        let (dao_addr, _, _) =
             setup_test_case(&mut app, threshold, voting_period, init_funds, true, None);
 
         // ensure we have cash to cover the proposal
@@ -848,7 +848,7 @@ mod tests {
             quorum: Decimal::percent(1),
         };
         let voting_period = Duration::Time(2000000);
-        let (dao_addr, _) = setup_test_case(
+        let (dao_addr, _, _) = setup_test_case(
             &mut app,
             threshold,
             voting_period,
@@ -907,7 +907,7 @@ mod tests {
             quorum: Decimal::percent(1),
         };
         let voting_period = Duration::Time(2000000);
-        let (dao_addr, _) = setup_test_case(
+        let (dao_addr, _, _) = setup_test_case(
             &mut app,
             threshold,
             voting_period,
@@ -979,7 +979,7 @@ mod tests {
             quorum: Decimal::percent(1),
         };
         let voting_period = 2000000;
-        let (dao_addr, _) = setup_test_case(
+        let (dao_addr, _, _) = setup_test_case(
             &mut app,
             threshold,
             Duration::Time(voting_period),
@@ -1061,7 +1061,7 @@ mod tests {
             quorum: Decimal::percent(1),
         };
         let voting_period = Duration::Height(2000000);
-        let (dao_addr, _) =
+        let (dao_addr, _, _) =
             setup_test_case(&mut app, threshold, voting_period, init_funds, true, None);
 
         // create proposal with 0 vote power
@@ -1119,7 +1119,7 @@ mod tests {
             quorum: Decimal::percent(1),
         };
         let voting_period = Duration::Time(20000);
-        let (dao_addr, group_addr) =
+        let (dao_addr, group_addr, _) =
             setup_test_case(&mut app, threshold, voting_period, init_funds, false, None);
 
         // VOTER1 starts a proposal to send some tokens (1/4 votes)
@@ -1246,7 +1246,7 @@ mod tests {
 
         let required_weight = 4;
         let voting_period = Duration::Time(20000);
-        let (dao_addr, group_addr) =
+        let (dao_addr, group_addr, _) =
             setup_test_case_fixed(&mut app, required_weight, voting_period, init_funds, true);
 
         // Start a proposal to remove VOTER3 from the set
@@ -1370,7 +1370,7 @@ mod tests {
             quorum: Decimal::percent(1),
         };
         let voting_period = Duration::Time(20000);
-        let (dao_addr, group_addr) =
+        let (dao_addr, group_addr, _) =
             setup_test_case(&mut app, threshold, voting_period, init_funds, false, None);
 
         // VOTER3 starts a proposal to send some tokens (3/12 votes)
@@ -1440,7 +1440,7 @@ mod tests {
         // 33% required for quora, which is 8 of the initial 24
         // 50% yes required to pass early (12 of the initial 24)
         let voting_period = Duration::Time(20000);
-        let (dao_addr, group_addr) = setup_test_case(
+        let (dao_addr, group_addr, _) = setup_test_case(
             &mut app,
             Threshold::ThresholdQuorum {
                 threshold: Decimal::percent(51),
@@ -1508,7 +1508,7 @@ mod tests {
         // 33% required for quora, which is 5 of the initial 15
         // 50% yes required to pass early (8 of the initial 15)
         let voting_period = Duration::Time(20000);
-        let (dao_addr, _) = setup_test_case(
+        let (dao_addr, _, _) = setup_test_case(
             &mut app,
             // note that 60% yes is not enough to pass without 20% no as well
             Threshold::ThresholdQuorum {
@@ -1583,7 +1583,6 @@ mod tests {
 
     #[track_caller]
     fn setup_test_collection(app: &mut App) -> Addr {
-        println!("Setup test collection1");
         let collection_addr = instantiate_collection(app);
         app.update_block(next_block);
 
@@ -1621,7 +1620,7 @@ mod tests {
             quorum: Decimal::percent(1),
         };
         let voting_period = Duration::Time(2000000);
-        let (dao_addr, _) =
+        let (dao_addr, _, _) =
             setup_test_case(&mut app, threshold, voting_period, init_funds, true, None);
 
         // ensure we have cash to cover the proposal
@@ -1663,33 +1662,163 @@ mod tests {
         assert_eq!(collection_addr, res.token_uri.unwrap());
     }
 
-    // fn proposal_nft_transfer_info() -> (Vec<CosmosMsg<Empty>>, String, String) {
-    //     // TODO: To transfer and NFT via a proposal, we need two messages.
-    //     // 1. A send() message to the collection contract with the NFT
-    //     // 2. A transfer() includeded in the send to transfer ownership to the recipient
+    // To transfer and NFT via a proposal, we need two messages.
+    // 1. A send() message to the collection contract with the NFT
+    // 2. A transfer() included in the send to transfer ownership to the recipient
+    fn proposal_nft_transfer_info(
+        collection_addr: String,
+        vault_addr: String,
+    ) -> (Vec<CosmosMsg<Empty>>, String, String) {
+        let transfer_msg: Cw721ExecuteMsg<Extension, Extension> = Cw721ExecuteMsg::TransferNft {
+            recipient: SOMEBODY.into(),
+            token_id: TOKEN_ID.into(),
+        };
+        let send_msg: Cw721ExecuteMsg<Extension, Extension> = Cw721ExecuteMsg::SendNft {
+            contract: collection_addr,
+            token_id: TOKEN_ID.into(),
+            msg: to_binary(&transfer_msg).unwrap(),
+        };
+        let wasm_msg = WasmMsg::Execute {
+            contract_addr: vault_addr,
+            msg: to_binary(&send_msg).unwrap(),
+            funds: vec![],
+        };
 
-    //     let transfer_msg = Cw721ExecuteMsg::TransferNft {
-    //         recipient: SOMEBODY.into(),
-    //         token_id: TOKEN_ID.into(),
-    //     };
+        let msgs = vec![wasm_msg.into()];
+        let title = "Transfer NFT".to_string();
+        let description = "Should we transfer this?".to_string();
+        (msgs, title, description)
+    }
 
-    //     // TODO: how do you convert a Cw721ExecuteMsg to a CosmosMsg?
+    fn transfer_nft_proposal(collection_addr: String, vault_addr: String) -> ExecuteMsg {
+        let (msgs, title, description) = proposal_nft_transfer_info(collection_addr, vault_addr);
+        ExecuteMsg::Propose {
+            title,
+            description,
+            msgs,
+            latest: None,
+        }
+    }
 
-    //     let msgs = vec![transfer_msg.into()];
-    //     let title = "Transfer NFT".to_string();
-    //     let description = "Should we transfer this?".to_string();
-    //     (msgs, title, description)
-    // }
+    #[test]
+    fn proposal_nft_transfer_works() {
+        let init_funds = coins(10, "BTC");
+        let mut app = mock_app(&init_funds);
 
-    // fn transfer_nft_proposal() -> ExecuteMsg {
-    //     let (msgs, title, description) = proposal_info();
-    //     ExecuteMsg::Propose {
-    //         title,
-    //         description,
-    //         msgs,
-    //         latest: None,
-    //     }
-    // }
+        let collection_addr = setup_test_collection(&mut app);
 
-    fn proposal_nft_transfer_works() {}
+        let threshold = Threshold::ThresholdQuorum {
+            threshold: Decimal::percent(51),
+            quorum: Decimal::percent(1),
+        };
+        let voting_period = Duration::Time(2000000);
+        let (dao_addr, _, vault_addr) =
+            setup_test_case(&mut app, threshold, voting_period, init_funds, true, None);
+
+        // send NFT from collection to DAO
+        let msg = to_binary("You now have the melting power").unwrap();
+        let send_msg: Cw721ExecuteMsg<Extension, Extension> = Cw721ExecuteMsg::SendNft {
+            contract: dao_addr.to_string(),
+            token_id: TOKEN_ID.to_string(),
+            msg,
+        };
+        app.execute_contract(
+            Addr::unchecked(OWNER),
+            collection_addr.clone(),
+            &send_msg,
+            &[],
+        )
+        .unwrap();
+
+        // ensure we have cash to cover the proposal
+        let contract_bal = app.wrap().query_balance(&dao_addr, "BTC").unwrap();
+        assert_eq!(contract_bal, coin(10, "BTC"));
+
+        // create nft transfer proposal with 0 vote power
+        let proposal = transfer_nft_proposal(collection_addr.to_string(), vault_addr.to_string());
+        let res = app
+            .execute_contract(Addr::unchecked(OWNER), dao_addr.clone(), &proposal, &[])
+            .unwrap();
+
+        // Get the proposal id from the logs
+        let proposal_id: u64 = res.custom_attrs(1)[2].value.parse().unwrap();
+
+        // Only Passed can be executed
+        let execution = ExecuteMsg::Execute { proposal_id };
+        let err = app
+            .execute_contract(Addr::unchecked(OWNER), dao_addr.clone(), &execution, &[])
+            .unwrap_err();
+        assert_eq!(
+            ContractError::Cw3FlexMultisig(Cw3FlexMultisigError::WrongExecuteStatus {}),
+            err.downcast().unwrap()
+        );
+
+        // Vote it, so it passes
+        let vote = ExecuteMsg::Vote {
+            proposal_id,
+            vote: Vote::Yes,
+        };
+        let res = app
+            .execute_contract(Addr::unchecked(VOTER4), dao_addr.clone(), &vote, &[])
+            .unwrap();
+        assert_eq!(
+            res.custom_attrs(1),
+            [
+                ("action", "vote"),
+                ("sender", VOTER4),
+                ("proposal_id", proposal_id.to_string().as_str()),
+                ("status", "Passed"),
+            ],
+        );
+
+        // In passing: Try to close Passed fails
+        let closing = ExecuteMsg::Close { proposal_id };
+        let err = app
+            .execute_contract(Addr::unchecked(OWNER), dao_addr.clone(), &closing, &[])
+            .unwrap_err();
+        assert_eq!(
+            ContractError::Cw3FlexMultisig(Cw3FlexMultisigError::WrongCloseStatus {}),
+            err.downcast().unwrap()
+        );
+
+        // Execute works. Anybody can execute Passed proposals
+        let res = app
+            .execute_contract(Addr::unchecked(SOMEBODY), dao_addr.clone(), &execution, &[])
+            .unwrap();
+
+        // TODO: Collections need to be able to receive NFTs
+
+        // assert_eq!(
+        //     res.custom_attrs(1),
+        //     [
+        //         ("action", "execute"),
+        //         ("sender", SOMEBODY),
+        //         ("proposal_id", proposal_id.to_string().as_str()),
+        //     ],
+        // );
+
+        // // verify money was transfered
+        // let some_bal = app.wrap().query_balance(SOMEBODY, "BTC").unwrap();
+        // assert_eq!(some_bal, coin(1, "BTC"));
+        // let contract_bal = app.wrap().query_balance(&dao_addr, "BTC").unwrap();
+        // assert_eq!(contract_bal, coin(9, "BTC"));
+
+        // // In passing: Try to close Executed fails
+        // let err = app
+        //     .execute_contract(Addr::unchecked(OWNER), dao_addr.clone(), &closing, &[])
+        //     .unwrap_err();
+        // assert_eq!(
+        //     ContractError::Cw3FlexMultisig(Cw3FlexMultisigError::WrongCloseStatus {}),
+        //     err.downcast().unwrap()
+        // );
+
+        // // Trying to execute something that was already executed fails
+        // let err = app
+        //     .execute_contract(Addr::unchecked(SOMEBODY), dao_addr, &execution, &[])
+        //     .unwrap_err();
+        // assert_eq!(
+        //     ContractError::Cw3FlexMultisig(Cw3FlexMultisigError::WrongExecuteStatus {}),
+        //     err.downcast().unwrap()
+        // );
+    }
 }
