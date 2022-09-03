@@ -1,8 +1,10 @@
 #[cfg(test)]
 mod tests {
+    use std::f32::MIN;
+
     use crate::{
         contract::{CONTRACT_NAME, CONTRACT_VERSION},
-        msg::{ExecuteMsg, InstantiateMsg, QueryMsg},
+        msg::{ExecuteMsg, InstantiateMsg, QueryMsg, VaultResponse},
         ContractError,
     };
     use cosmwasm_std::{
@@ -18,6 +20,7 @@ mod tests {
     use cw3_flex_multisig::state::Executor as Cw3Executor;
     use cw4::{Cw4ExecuteMsg, Member, MemberChangedHookMsg, MemberDiff};
     use cw4_group::helpers::Cw4GroupContract;
+    use cw721::{Cw721QueryMsg, NftInfoResponse};
     use cw721_base::{
         msg::{ExecuteMsg as Cw721ExecuteMsg, InstantiateMsg as Cw721InstantiateMsg},
         Extension, MintMsg,
@@ -1557,6 +1560,7 @@ mod tests {
     // NFT tests ------------------------------------------------------------------
 
     const TOKEN_ID: &str = "token0001";
+    const MINTER: &str = "minter";
 
     #[track_caller]
     fn instantiate_collection(app: &mut App) -> Addr {
@@ -1564,7 +1568,7 @@ mod tests {
         let msg = Cw721InstantiateMsg {
             name: "My NFTs".to_string(),
             symbol: "NFT".to_string(),
-            minter: "minter".to_string(),
+            minter: MINTER.into(),
         };
         app.instantiate_contract(
             collection_code_id,
@@ -1579,6 +1583,7 @@ mod tests {
 
     #[track_caller]
     fn setup_test_collection(app: &mut App) -> Addr {
+        println!("Setup test collection1");
         let collection_addr = instantiate_collection(app);
         app.update_block(next_block);
 
@@ -1594,7 +1599,7 @@ mod tests {
         });
 
         app.execute_contract(
-            Addr::unchecked(OWNER),
+            Addr::unchecked(MINTER),
             collection_addr.clone(),
             &mint_msg,
             &[],
@@ -1630,10 +1635,32 @@ mod tests {
             token_id: TOKEN_ID.to_string(),
             msg,
         };
-        app.execute_contract(Addr::unchecked(OWNER), collection_addr, &send_msg, &[])
-            .unwrap();
+        app.execute_contract(
+            Addr::unchecked(OWNER),
+            collection_addr.clone(),
+            &send_msg,
+            &[],
+        )
+        .unwrap();
 
-        // TODO: check size of DAO NFT vault to verify NFT was received
+        let res: VaultResponse = app
+            .wrap()
+            .query_wasm_smart(dao_addr, &QueryMsg::Vault {})
+            .unwrap();
+        let vault_addr = res.addr;
+        assert_eq!("contract3".to_string(), vault_addr);
+
+        let res: NftInfoResponse<Extension> = app
+            .wrap()
+            .query_wasm_smart(
+                vault_addr,
+                &Cw721QueryMsg::NftInfo {
+                    token_id: TOKEN_ID.to_string(),
+                },
+            )
+            .unwrap();
+        // the token_uri is the original collection address
+        assert_eq!(collection_addr, res.token_uri.unwrap());
     }
 
     // fn proposal_nft_transfer_info() -> (Vec<CosmosMsg<Empty>>, String, String) {
