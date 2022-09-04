@@ -25,7 +25,7 @@ use cw_storage_plus::Bound;
 use cw_utils::{maybe_addr, parse_reply_instantiate_data, ThresholdResponse};
 
 use crate::error::ContractError;
-use crate::msg::{ExecuteMsg, InstantiateMsg, QueryMsg, VaultResponse};
+use crate::msg::{ExecuteMsg, InstantiateMsg, QueryMsg};
 use crate::state::VAULT;
 
 // version info for migration info
@@ -108,8 +108,7 @@ pub fn execute(
         ExecuteMsg::Close { proposal_id } => Ok(execute_close(deps, env, info, proposal_id)?),
         ExecuteMsg::MemberChangedHook(MemberChangedHookMsg { diffs }) => {
             Ok(execute_membership_hook(deps, env, info, diffs)?)
-        }
-        ExecuteMsg::ReceiveNft(msg) => execute_receive_nft(deps, env, info, msg),
+        } // ExecuteMsg::ReceiveNft(msg) => execute_receive_nft(deps, env, info, msg),
     }
 }
 
@@ -199,13 +198,7 @@ pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
         QueryMsg::ListVoters { start_after, limit } => {
             to_binary(&list_voters(deps, start_after, limit)?)
         }
-        QueryMsg::Vault {} => to_binary(&query_vault(deps)?),
     }
-}
-
-fn query_vault(deps: Deps) -> StdResult<VaultResponse> {
-    let addr = VAULT.load(deps.storage)?.to_string();
-    Ok(VaultResponse { addr })
 }
 
 // TODO: All query functions are private in cw3 contracts, so we have to duplicate them here.

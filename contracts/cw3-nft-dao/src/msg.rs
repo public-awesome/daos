@@ -43,8 +43,8 @@ pub enum ExecuteMsg {
     },
     /// Handles update hook messages from the group contract
     MemberChangedHook(MemberChangedHookMsg),
-    /// Receive NFT
-    ReceiveNft(Cw721ReceiveMsg),
+    // / Receive NFT
+    // ReceiveNft(Cw721ReceiveMsg),
     // TODO: add a SendNFT message that sends from the vault?
 }
 
@@ -80,12 +80,12 @@ pub enum QueryMsg {
         start_after: Option<String>,
         limit: Option<u32>,
     },
-    /// Returns NFT Vault contract
-    Vault {},
+    // / Returns NFT Vault contract
+    // Vault {},
     // TODO: Add vault queries?
 }
 
-#[derive(Serialize, Deserialize, Clone, PartialEq, JsonSchema, Debug)]
-pub struct VaultResponse {
-    pub addr: String,
-}
+// #[derive(Serialize, Deserialize, Clone, PartialEq, JsonSchema, Debug)]
+// pub struct VaultResponse {
+//     pub addr: String,
+// }
