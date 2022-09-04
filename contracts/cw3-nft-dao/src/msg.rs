@@ -15,8 +15,6 @@ pub struct InstantiateMsg {
     /// who is able to execute passed proposals
     /// None means that anyone can execute
     pub executor: Option<Executor>,
-    /// code_id of NFT vault (usually a cw721-base or sg721-base)
-    pub vault_code_id: u64,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
@@ -42,9 +40,6 @@ pub enum ExecuteMsg {
     },
     /// Handles update hook messages from the group contract
     MemberChangedHook(MemberChangedHookMsg),
-    // / Receive NFT
-    // ReceiveNft(Cw721ReceiveMsg),
-    // TODO: add a SendNFT message that sends from the vault?
 }
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, JsonSchema, Debug)]
@@ -79,12 +74,4 @@ pub enum QueryMsg {
         start_after: Option<String>,
         limit: Option<u32>,
     },
-    // / Returns NFT Vault contract
-    // Vault {},
-    // TODO: Add vault queries?
 }
-
-// #[derive(Serialize, Deserialize, Clone, PartialEq, JsonSchema, Debug)]
-// pub struct VaultResponse {
-//     pub addr: String,
-// }

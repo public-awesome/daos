@@ -97,13 +97,11 @@ mod tests {
         executor: Option<Cw3Executor>,
     ) -> Addr {
         let dao_id = app.store_code(contract_nft_dao());
-        let vault_code_id = app.store_code(contract_cw721());
         let msg = InstantiateMsg {
             group_addr: group.to_string(),
             threshold,
             max_voting_period,
             executor,
-            vault_code_id,
         };
         app.instantiate_contract(dao_id, Addr::unchecked(OWNER), &msg, &[], "dao", None)
             .unwrap()
@@ -227,7 +225,6 @@ mod tests {
             },
             max_voting_period,
             executor: None,
-            vault_code_id,
         };
         let err = app
             .instantiate_contract(
@@ -250,7 +247,6 @@ mod tests {
             threshold: Threshold::AbsoluteCount { weight: 100 },
             max_voting_period,
             executor: None,
-            vault_code_id,
         };
         let err = app
             .instantiate_contract(
@@ -273,7 +269,6 @@ mod tests {
             threshold: Threshold::AbsoluteCount { weight: 1 },
             max_voting_period,
             executor: None,
-            vault_code_id,
         };
         let dao_addr = app
             .instantiate_contract(
