@@ -52,6 +52,7 @@ cw3 = "0.14.0"
 cw3-fixed-multisig = { version = "0.14.0", features = ["library"] }
 cw3-flex-multisig = { version = "0.14.0", features = ["library"] }
 cw4 = "0.14.0"
+cw4-group = { version = "0.14.0", features = ["library"] }
 cw721 = "0.13.4"
 # cw721-base = { version = "0.13.4", features = ["library"] }
 cw721-base = { git = "https://github.com/CosmWasm/cw-nfts", features = [

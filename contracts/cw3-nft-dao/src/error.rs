@@ -13,4 +13,10 @@ pub enum ContractError {
 
     #[error("{0}")]
     Threshold(#[from] ThresholdError),
+
+    #[error("Invalid reply ID")]
+    InvalidReplyID {},
+
+    #[error("Reply error")]
+    ReplyOnSuccess {},
 }

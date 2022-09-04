@@ -1,7 +1,8 @@
 #[cfg(not(feature = "library"))]
 use cosmwasm_std::entry_point;
 use cosmwasm_std::{
-    to_binary, Binary, BlockInfo, Deps, DepsMut, Env, MessageInfo, Order, Response, StdResult,
+    to_binary, Binary, BlockInfo, Deps, DepsMut, Env, MessageInfo, Order, Reply, Response,
+    StdResult, SubMsg, WasmMsg,
 };
 use cw2::set_contract_version;
 use cw3::{
@@ -12,45 +13,55 @@ use cw3_fixed_multisig::state::{Proposal, BALLOTS, PROPOSALS};
 use cw3_flex_multisig::contract::{
     execute_close, execute_execute, execute_membership_hook, execute_propose, execute_vote,
 };
-use cw3_flex_multisig::state::{Config, CONFIG};
 use cw3_flex_multisig::ContractError as Cw3FlexMultisigError;
 use cw4::{Cw4Contract, MemberChangedHookMsg};
+use cw4_group::msg::InstantiateMsg as Cw4GroupInstantiateMsg;
 use cw_storage_plus::Bound;
-use cw_utils::{maybe_addr, ThresholdResponse};
+use cw_utils::{maybe_addr, parse_reply_instantiate_data, ThresholdResponse};
 
 use crate::error::ContractError;
 use crate::msg::{ExecuteMsg, InstantiateMsg, QueryMsg};
+use crate::state::{Config, CONFIG, GROUP};
 
 // version info for migration info
 pub const CONTRACT_NAME: &str = "crates.io:cw3-nft-dao";
 pub const CONTRACT_VERSION: &str = env!("CARGO_PKG_VERSION");
 
+const INIT_GROUP_REPLY_ID: u64 = 1;
+
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn instantiate(
     deps: DepsMut,
-    _env: Env,
+    env: Env,
     _info: MessageInfo,
     msg: InstantiateMsg,
 ) -> Result<Response, ContractError> {
-    let group_addr = Cw4Contract(deps.api.addr_validate(&msg.group_addr).map_err(|_| {
-        Cw3FlexMultisigError::InvalidGroup {
-            addr: msg.group_addr.clone(),
-        }
-    })?);
-    let total_weight = group_addr.total_weight(&deps.querier)?;
-    msg.threshold.validate(total_weight)?;
-
     set_contract_version(deps.storage, CONTRACT_NAME, CONTRACT_VERSION)?;
+
+    let dao_addr = env.contract.address;
 
     let cfg = Config {
         threshold: msg.threshold,
         max_voting_period: msg.max_voting_period,
-        group_addr,
         executor: msg.executor,
     };
     CONFIG.save(deps.storage, &cfg)?;
 
-    Ok(Response::default())
+    // Create a group with this DAO as the admin
+    let init_msg = Cw4GroupInstantiateMsg {
+        admin: Some(dao_addr.to_string()),
+        members: msg.members,
+    };
+    let wasm_msg = WasmMsg::Instantiate {
+        admin: Some(dao_addr.to_string()),
+        code_id: msg.group_code_id,
+        msg: to_binary(&init_msg)?,
+        funds: vec![],
+        label: "DAO-group".to_string(),
+    };
+    let submsg = SubMsg::reply_on_success(wasm_msg, INIT_GROUP_REPLY_ID);
+
+    Ok(Response::default().add_submessage(submsg))
 }
 
 #[cfg_attr(not(feature = "library"), entry_point)]
@@ -87,6 +98,34 @@ pub fn execute(
 }
 
 #[cfg_attr(not(feature = "library"), entry_point)]
+pub fn reply(deps: DepsMut, _env: Env, msg: Reply) -> Result<Response, ContractError> {
+    if msg.id != INIT_GROUP_REPLY_ID {
+        return Err(ContractError::InvalidReplyID {});
+    }
+
+    let reply = parse_reply_instantiate_data(msg);
+    match reply {
+        Ok(res) => {
+            let group_addr =
+                Cw4Contract(deps.api.addr_validate(&res.contract_address).map_err(|_| {
+                    Cw3FlexMultisigError::InvalidGroup {
+                        addr: res.contract_address.clone(),
+                    }
+                })?);
+
+            let total_weight = group_addr.total_weight(&deps.querier)?;
+            let config = CONFIG.load(deps.storage)?;
+            config.threshold.validate(total_weight)?;
+
+            GROUP.save(deps.storage, &group_addr)?;
+
+            Ok(Response::default().add_attribute("action", "reply_on_success"))
+        }
+        Err(_) => Err(ContractError::ReplyOnSuccess {}),
+    }
+}
+
+#[cfg_attr(not(feature = "library"), entry_point)]
 pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
     match msg {
         QueryMsg::Threshold {} => to_binary(&query_threshold(deps)?),
@@ -113,7 +152,8 @@ pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
 
 fn query_threshold(deps: Deps) -> StdResult<ThresholdResponse> {
     let cfg = CONFIG.load(deps.storage)?;
-    let total_weight = cfg.group_addr.total_weight(&deps.querier)?;
+    let group_addr = GROUP.load(deps.storage)?;
+    let total_weight = group_addr.total_weight(&deps.querier)?;
     Ok(cfg.threshold.to_response(total_weight))
 }
 
@@ -229,9 +269,9 @@ fn list_votes(
 }
 
 fn query_voter(deps: Deps, voter: String) -> StdResult<VoterResponse> {
-    let cfg = CONFIG.load(deps.storage)?;
+    let group_addr = GROUP.load(deps.storage)?;
     let voter_addr = deps.api.addr_validate(&voter)?;
-    let weight = cfg.group_addr.is_member(&deps.querier, &voter_addr, None)?;
+    let weight = group_addr.is_member(&deps.querier, &voter_addr, None)?;
 
     Ok(VoterResponse { weight })
 }
@@ -241,9 +281,8 @@ fn list_voters(
     start_after: Option<String>,
     limit: Option<u32>,
 ) -> StdResult<VoterListResponse> {
-    let cfg = CONFIG.load(deps.storage)?;
-    let voters = cfg
-        .group_addr
+    let group_addr = GROUP.load(deps.storage)?;
+    let voters = group_addr
         .list_members(&deps.querier, start_after, limit)?
         .into_iter()
         .map(|member| VoterDetail {

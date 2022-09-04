@@ -1,15 +1,16 @@
 use cosmwasm_std::{CosmosMsg, Empty};
 use cw3::Vote;
 use cw3_flex_multisig::state::Executor;
-use cw4::MemberChangedHookMsg;
+use cw4::{Member, MemberChangedHookMsg};
 use cw_utils::{Duration, Expiration, Threshold};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, JsonSchema, Debug)]
 pub struct InstantiateMsg {
-    /// this is the group contract that contains the member list
-    pub group_addr: String,
+    /// this is the code id for the group contract that contains the member list
+    pub group_code_id: u64,
+    pub members: Vec<Member>,
     pub threshold: Threshold,
     pub max_voting_period: Duration,
     /// who is able to execute passed proposals

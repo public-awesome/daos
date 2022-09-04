@@ -16,7 +16,7 @@ mod tests {
     };
     use cw3_flex_multisig::error::ContractError as Cw3FlexMultisigError;
     use cw3_flex_multisig::state::Executor as Cw3Executor;
-    use cw4::{Cw4ExecuteMsg, Member, MemberChangedHookMsg, MemberDiff};
+    use cw4::{Member, MemberChangedHookMsg, MemberDiff};
     use cw4_group::helpers::Cw4GroupContract;
     use cw721::{Cw721QueryMsg, OwnerOfResponse};
     use cw721_base::{
@@ -39,6 +39,17 @@ mod tests {
             addr: addr.into(),
             weight,
         }
+    }
+
+    fn members() -> Vec<Member> {
+        vec![
+            member(OWNER, 0),
+            member(VOTER1, 1),
+            member(VOTER2, 2),
+            member(VOTER3, 3),
+            member(VOTER4, 12), // so that he alone can pass a 50 / 52% threshold proposal
+            member(VOTER5, 5),
+        ]
     }
 
     pub fn contract_nft_dao() -> Box<dyn Contract<Empty>> {
@@ -77,28 +88,30 @@ mod tests {
         })
     }
 
-    // uploads code and returns address of group contract
-    fn instantiate_group(app: &mut App, members: Vec<Member>) -> Addr {
-        let group_id = app.store_code(contract_group());
-        let msg = cw4_group::msg::InstantiateMsg {
-            admin: Some(OWNER.into()),
-            members,
-        };
-        app.instantiate_contract(group_id, Addr::unchecked(OWNER), &msg, &[], "group", None)
-            .unwrap()
-    }
+    // // uploads code and returns address of group contract
+    // fn instantiate_group(app: &mut App, members: Vec<Member>) -> Addr {
+    //     let group_id = app.store_code(contract_group());
+    //     let msg = cw4_group::msg::InstantiateMsg {
+    //         admin: Some(OWNER.into()),
+    //         members,
+    //     };
+    //     app.instantiate_contract(group_id, Addr::unchecked(OWNER), &msg, &[], "group", None)
+    //         .unwrap()
+    // }
 
     #[track_caller]
     fn instantiate_dao(
         app: &mut App,
-        group: Addr,
         threshold: Threshold,
         max_voting_period: Duration,
         executor: Option<Cw3Executor>,
     ) -> Addr {
         let dao_id = app.store_code(contract_nft_dao());
+        let group_id = app.store_code(contract_group());
+
         let msg = InstantiateMsg {
-            group_addr: group.to_string(),
+            group_code_id: group_id,
+            members: members(),
             threshold,
             max_voting_period,
             executor,
@@ -117,7 +130,7 @@ mod tests {
         max_voting_period: Duration,
         init_funds: Vec<Coin>,
         multisig_as_group_admin: bool,
-    ) -> (Addr, Addr) {
+    ) -> Addr {
         setup_test_case(
             app,
             Threshold::AbsoluteCount {
@@ -138,50 +151,17 @@ mod tests {
         init_funds: Vec<Coin>,
         multisig_as_group_admin: bool,
         executor: Option<Cw3Executor>,
-    ) -> (Addr, Addr) {
-        // 1. Instantiate group contract with members (and OWNER as admin)
-        let members = vec![
-            member(OWNER, 0),
-            member(VOTER1, 1),
-            member(VOTER2, 2),
-            member(VOTER3, 3),
-            member(VOTER4, 12), // so that he alone can pass a 50 / 52% threshold proposal
-            member(VOTER5, 5),
-        ];
-        let group_addr = instantiate_group(app, members);
+    ) -> Addr {
+        // Set up Multisig backed by this group
+        let dao_addr = instantiate_dao(app, threshold, max_voting_period, executor);
         app.update_block(next_block);
-
-        // 2. Set up Multisig backed by this group
-        let dao_addr = instantiate_dao(
-            app,
-            group_addr.clone(),
-            threshold,
-            max_voting_period,
-            executor,
-        );
-        app.update_block(next_block);
-
-        // 3. (Optional) Set the multisig as the group owner
-        if multisig_as_group_admin {
-            let update_admin = Cw4ExecuteMsg::UpdateAdmin {
-                admin: Some(dao_addr.to_string()),
-            };
-            app.execute_contract(
-                Addr::unchecked(OWNER),
-                group_addr.clone(),
-                &update_admin,
-                &[],
-            )
-            .unwrap();
-            app.update_block(next_block);
-        }
 
         // Bonus: set some funds on the multisig contract for future proposals
         if !init_funds.is_empty() {
             app.send_tokens(Addr::unchecked(OWNER), dao_addr.clone(), &init_funds)
                 .unwrap();
         }
-        (dao_addr, group_addr)
+        dao_addr
     }
 
     fn proposal_info() -> (Vec<CosmosMsg<Empty>>, String, String) {
@@ -210,15 +190,16 @@ mod tests {
         let mut app = mock_app(&[]);
 
         // make a simple group
-        let group_addr = instantiate_group(&mut app, vec![member(OWNER, 1)]);
         let nft_dao_id = app.store_code(contract_nft_dao());
+        let group_code_id = app.store_code(contract_group());
         let vault_code_id = app.store_code(contract_cw721());
 
         let max_voting_period = Duration::Time(1234567);
 
         // Zero required weight fails
         let instantiate_msg = InstantiateMsg {
-            group_addr: group_addr.to_string(),
+            group_code_id,
+            members: members(),
             threshold: Threshold::ThresholdQuorum {
                 threshold: Decimal::zero(),
                 quorum: Decimal::percent(1),
@@ -243,7 +224,8 @@ mod tests {
 
         // Total weight less than required weight not allowed
         let instantiate_msg = InstantiateMsg {
-            group_addr: group_addr.to_string(),
+            group_code_id,
+            members: members(),
             threshold: Threshold::AbsoluteCount { weight: 100 },
             max_voting_period,
             executor: None,
@@ -265,7 +247,8 @@ mod tests {
 
         // All valid
         let instantiate_msg = InstantiateMsg {
-            group_addr: group_addr.to_string(),
+            group_code_id,
+            members: members(),
             threshold: Threshold::AbsoluteCount { weight: 1 },
             max_voting_period,
             executor: None,
@@ -318,7 +301,7 @@ mod tests {
 
         let required_weight = 4;
         let voting_period = Duration::Time(2000000);
-        let (dao_addr, _) =
+        let dao_addr =
             setup_test_case_fixed(&mut app, required_weight, voting_period, init_funds, false);
 
         let proposal = pay_somebody_proposal();
@@ -403,8 +386,7 @@ mod tests {
             threshold: Decimal::percent(80),
             quorum: Decimal::percent(20),
         };
-        let (dao_addr, _) =
-            setup_test_case(&mut app, threshold, voting_period, init_funds, false, None);
+        let dao_addr = setup_test_case(&mut app, threshold, voting_period, init_funds, false, None);
 
         // create proposal with 1 vote power
         let proposal = pay_somebody_proposal();
@@ -524,8 +506,7 @@ mod tests {
             quorum: Decimal::percent(1),
         };
         let voting_period = Duration::Time(2000000);
-        let (dao_addr, _) =
-            setup_test_case(&mut app, threshold, voting_period, init_funds, false, None);
+        let dao_addr = setup_test_case(&mut app, threshold, voting_period, init_funds, false, None);
 
         // create proposal with 0 vote power
         let proposal = pay_somebody_proposal();
@@ -734,8 +715,7 @@ mod tests {
             quorum: Decimal::percent(1),
         };
         let voting_period = Duration::Time(2000000);
-        let (dao_addr, _) =
-            setup_test_case(&mut app, threshold, voting_period, init_funds, true, None);
+        let dao_addr = setup_test_case(&mut app, threshold, voting_period, init_funds, true, None);
 
         // ensure we have cash to cover the proposal
         let contract_bal = app.wrap().query_balance(&dao_addr, "BTC").unwrap();
@@ -836,7 +816,7 @@ mod tests {
             quorum: Decimal::percent(1),
         };
         let voting_period = Duration::Time(2000000);
-        let (dao_addr, _) = setup_test_case(
+        let dao_addr = setup_test_case(
             &mut app,
             threshold,
             voting_period,
@@ -895,7 +875,7 @@ mod tests {
             quorum: Decimal::percent(1),
         };
         let voting_period = Duration::Time(2000000);
-        let (dao_addr, _) = setup_test_case(
+        let dao_addr = setup_test_case(
             &mut app,
             threshold,
             voting_period,
@@ -967,7 +947,7 @@ mod tests {
             quorum: Decimal::percent(1),
         };
         let voting_period = 2000000;
-        let (dao_addr, _) = setup_test_case(
+        let dao_addr = setup_test_case(
             &mut app,
             threshold,
             Duration::Time(voting_period),
@@ -1049,8 +1029,7 @@ mod tests {
             quorum: Decimal::percent(1),
         };
         let voting_period = Duration::Height(2000000);
-        let (dao_addr, _) =
-            setup_test_case(&mut app, threshold, voting_period, init_funds, true, None);
+        let dao_addr = setup_test_case(&mut app, threshold, voting_period, init_funds, true, None);
 
         // create proposal with 0 vote power
         let proposal = pay_somebody_proposal();
@@ -1107,8 +1086,7 @@ mod tests {
             quorum: Decimal::percent(1),
         };
         let voting_period = Duration::Time(20000);
-        let (dao_addr, group_addr) =
-            setup_test_case(&mut app, threshold, voting_period, init_funds, false, None);
+        let dao_addr = setup_test_case(&mut app, threshold, voting_period, init_funds, false, None);
 
         // VOTER1 starts a proposal to send some tokens (1/4 votes)
         let proposal = pay_somebody_proposal();
@@ -1234,7 +1212,7 @@ mod tests {
 
         let required_weight = 4;
         let voting_period = Duration::Time(20000);
-        let (dao_addr, group_addr) =
+        let dao_addr =
             setup_test_case_fixed(&mut app, required_weight, voting_period, init_funds, true);
 
         // Start a proposal to remove VOTER3 from the set
@@ -1358,8 +1336,7 @@ mod tests {
             quorum: Decimal::percent(1),
         };
         let voting_period = Duration::Time(20000);
-        let (dao_addr, group_addr) =
-            setup_test_case(&mut app, threshold, voting_period, init_funds, false, None);
+        let dao_addr = setup_test_case(&mut app, threshold, voting_period, init_funds, false, None);
 
         // VOTER3 starts a proposal to send some tokens (3/12 votes)
         let proposal = pay_somebody_proposal();
@@ -1428,7 +1405,7 @@ mod tests {
         // 33% required for quora, which is 8 of the initial 24
         // 50% yes required to pass early (12 of the initial 24)
         let voting_period = Duration::Time(20000);
-        let (dao_addr, group_addr) = setup_test_case(
+        let dao_addr = setup_test_case(
             &mut app,
             Threshold::ThresholdQuorum {
                 threshold: Decimal::percent(51),
@@ -1496,7 +1473,7 @@ mod tests {
         // 33% required for quora, which is 5 of the initial 15
         // 50% yes required to pass early (8 of the initial 15)
         let voting_period = Duration::Time(20000);
-        let (dao_addr, _) = setup_test_case(
+        let dao_addr = setup_test_case(
             &mut app,
             // note that 60% yes is not enough to pass without 20% no as well
             Threshold::ThresholdQuorum {
@@ -1608,8 +1585,7 @@ mod tests {
             quorum: Decimal::percent(1),
         };
         let voting_period = Duration::Time(2000000);
-        let (dao_addr, _) =
-            setup_test_case(&mut app, threshold, voting_period, init_funds, true, None);
+        let dao_addr = setup_test_case(&mut app, threshold, voting_period, init_funds, true, None);
 
         // ensure we have cash to cover the proposal
         let contract_bal = app.wrap().query_balance(&dao_addr, "BTC").unwrap();
@@ -1681,7 +1657,7 @@ mod tests {
             quorum: Decimal::percent(1),
         };
         let voting_period = Duration::Time(2000000);
-        let (dao_addr, _) = setup_test_case(&mut app, threshold, voting_period, vec![], true, None);
+        let dao_addr = setup_test_case(&mut app, threshold, voting_period, vec![], true, None);
 
         // transfer NFT from collection to DAO
         let transfer_msg: Cw721ExecuteMsg<Extension, Extension> = Cw721ExecuteMsg::TransferNft {
