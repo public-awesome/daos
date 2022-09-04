@@ -20,7 +20,7 @@ use cw_storage_plus::Bound;
 use cw_utils::{maybe_addr, parse_reply_instantiate_data, ThresholdResponse};
 
 use crate::error::ContractError;
-use crate::msg::{ExecuteMsg, InstantiateMsg, QueryMsg};
+use crate::msg::{ExecuteMsg, GroupResponse, InstantiateMsg, QueryMsg};
 use crate::state::{Config, CONFIG, GROUP};
 
 // version info for migration info
@@ -147,7 +147,13 @@ pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
         QueryMsg::ListVoters { start_after, limit } => {
             to_binary(&list_voters(deps, start_after, limit)?)
         }
+        QueryMsg::Group {} => to_binary(&query_group(deps)?),
     }
+}
+
+fn query_group(deps: Deps) -> StdResult<GroupResponse> {
+    let group = GROUP.load(deps.storage)?;
+    Ok(GroupResponse { group })
 }
 
 fn query_threshold(deps: Deps) -> StdResult<ThresholdResponse> {

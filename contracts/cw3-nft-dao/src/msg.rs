@@ -1,7 +1,7 @@
 use cosmwasm_std::{CosmosMsg, Empty};
 use cw3::Vote;
 use cw3_flex_multisig::state::Executor;
-use cw4::{Member, MemberChangedHookMsg};
+use cw4::{Cw4Contract, Member, MemberChangedHookMsg};
 use cw_utils::{Duration, Expiration, Threshold};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -75,4 +75,11 @@ pub enum QueryMsg {
         start_after: Option<String>,
         limit: Option<u32>,
     },
+    /// Returns GroupResponse
+    Group {},
+}
+
+#[derive(Serialize, Deserialize, Clone, PartialEq, JsonSchema, Debug)]
+pub struct GroupResponse {
+    pub group: Cw4Contract,
 }
