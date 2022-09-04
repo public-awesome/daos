@@ -2,7 +2,6 @@ use cosmwasm_std::{CosmosMsg, Empty};
 use cw3::Vote;
 use cw3_flex_multisig::state::Executor;
 use cw4::MemberChangedHookMsg;
-use cw721::Cw721ReceiveMsg;
 use cw_utils::{Duration, Expiration, Threshold};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
