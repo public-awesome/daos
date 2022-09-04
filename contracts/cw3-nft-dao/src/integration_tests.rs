@@ -1,15 +1,13 @@
 #[cfg(test)]
 mod tests {
-    use std::f32::MIN;
-
     use crate::{
         contract::{CONTRACT_NAME, CONTRACT_VERSION},
-        msg::{ExecuteMsg, InstantiateMsg, QueryMsg, VaultResponse},
+        msg::{ExecuteMsg, InstantiateMsg, QueryMsg},
         ContractError,
     };
     use cosmwasm_std::{
         coin, coins, to_binary, Addr, BankMsg, BlockInfo, Coin, CosmosMsg, Decimal, Empty,
-        Timestamp,
+        Timestamp, WasmMsg,
     };
     use cw2::{query_contract_info, ContractVersion};
     use cw3::{
@@ -20,17 +18,13 @@ mod tests {
     use cw3_flex_multisig::state::Executor as Cw3Executor;
     use cw4::{Cw4ExecuteMsg, Member, MemberChangedHookMsg, MemberDiff};
     use cw4_group::helpers::Cw4GroupContract;
-    use cw721::{Cw721QueryMsg, NftInfoResponse};
+    use cw721::{Cw721QueryMsg, OwnerOfResponse};
     use cw721_base::{
         msg::{ExecuteMsg as Cw721ExecuteMsg, InstantiateMsg as Cw721InstantiateMsg},
         Extension, MintMsg,
     };
     use cw_multi_test::{next_block, App, AppBuilder, Contract, ContractWrapper, Executor};
     use cw_utils::{Duration, Expiration, Threshold, ThresholdResponse};
-
-    // const USER: &str = "USER";
-    // const ADMIN: &str = "ADMIN";
-    // const NATIVE_DENOM: &str = "denom";
 
     const OWNER: &str = "admin0001";
     const VOTER1: &str = "voter0001";
@@ -52,8 +46,7 @@ mod tests {
             crate::contract::execute,
             crate::contract::instantiate,
             crate::contract::query,
-        )
-        .with_reply(crate::contract::reply);
+        );
         Box::new(contract)
     }
 
@@ -104,13 +97,11 @@ mod tests {
         executor: Option<Cw3Executor>,
     ) -> Addr {
         let dao_id = app.store_code(contract_nft_dao());
-        let vault_code_id = app.store_code(contract_cw721());
         let msg = InstantiateMsg {
             group_addr: group.to_string(),
             threshold,
             max_voting_period,
             executor,
-            vault_code_id,
         };
         app.instantiate_contract(dao_id, Addr::unchecked(OWNER), &msg, &[], "dao", None)
             .unwrap()
@@ -234,7 +225,6 @@ mod tests {
             },
             max_voting_period,
             executor: None,
-            vault_code_id,
         };
         let err = app
             .instantiate_contract(
@@ -257,7 +247,6 @@ mod tests {
             threshold: Threshold::AbsoluteCount { weight: 100 },
             max_voting_period,
             executor: None,
-            vault_code_id,
         };
         let err = app
             .instantiate_contract(
@@ -280,7 +269,6 @@ mod tests {
             threshold: Threshold::AbsoluteCount { weight: 1 },
             max_voting_period,
             executor: None,
-            vault_code_id,
         };
         let dao_addr = app
             .instantiate_contract(
@@ -1583,7 +1571,6 @@ mod tests {
 
     #[track_caller]
     fn setup_test_collection(app: &mut App) -> Addr {
-        println!("Setup test collection1");
         let collection_addr = instantiate_collection(app);
         app.update_block(next_block);
 
@@ -1610,7 +1597,7 @@ mod tests {
     }
 
     #[test]
-    fn send_nft_to_dao_works() {
+    fn transfer_nft_to_dao_works() {
         let init_funds = coins(10, "BTC");
         let mut app = mock_app(&init_funds);
 
@@ -1628,68 +1615,176 @@ mod tests {
         let contract_bal = app.wrap().query_balance(&dao_addr, "BTC").unwrap();
         assert_eq!(contract_bal, coin(10, "BTC"));
 
-        // send NFT from collection to DAO
-        let msg = to_binary("You now have the melting power").unwrap();
-        let send_msg: Cw721ExecuteMsg<Extension, Extension> = Cw721ExecuteMsg::SendNft {
-            contract: dao_addr.to_string(),
+        // transfer NFT from collection to DAO
+        let transfer_msg: Cw721ExecuteMsg<Extension, Extension> = Cw721ExecuteMsg::TransferNft {
+            recipient: dao_addr.to_string(),
             token_id: TOKEN_ID.to_string(),
-            msg,
         };
         app.execute_contract(
             Addr::unchecked(OWNER),
             collection_addr.clone(),
-            &send_msg,
+            &transfer_msg,
             &[],
         )
         .unwrap();
 
-        let res: VaultResponse = app
-            .wrap()
-            .query_wasm_smart(dao_addr, &QueryMsg::Vault {})
-            .unwrap();
-        let vault_addr = res.addr;
-        assert_eq!("contract3".to_string(), vault_addr);
-
-        let res: NftInfoResponse<Extension> = app
+        let res: OwnerOfResponse = app
             .wrap()
             .query_wasm_smart(
-                vault_addr,
-                &Cw721QueryMsg::NftInfo {
+                collection_addr,
+                &Cw721QueryMsg::OwnerOf {
                     token_id: TOKEN_ID.to_string(),
+                    include_expired: None,
                 },
             )
             .unwrap();
-        // the token_uri is the original collection address
-        assert_eq!(collection_addr, res.token_uri.unwrap());
+        assert_eq!(dao_addr, res.owner);
     }
 
-    // fn proposal_nft_transfer_info() -> (Vec<CosmosMsg<Empty>>, String, String) {
-    //     // TODO: To transfer and NFT via a proposal, we need two messages.
-    //     // 1. A send() message to the collection contract with the NFT
-    //     // 2. A transfer() includeded in the send to transfer ownership to the recipient
+    fn proposal_nft_transfer_info(
+        collection_addr: String,
+    ) -> (Vec<CosmosMsg<Empty>>, String, String) {
+        let transfer_msg: Cw721ExecuteMsg<Extension, Extension> = Cw721ExecuteMsg::TransferNft {
+            recipient: SOMEBODY.into(),
+            token_id: TOKEN_ID.into(),
+        };
+        let wasm_msg = WasmMsg::Execute {
+            contract_addr: collection_addr,
+            msg: to_binary(&transfer_msg).unwrap(),
+            funds: vec![],
+        };
 
-    //     let transfer_msg = Cw721ExecuteMsg::TransferNft {
-    //         recipient: SOMEBODY.into(),
-    //         token_id: TOKEN_ID.into(),
-    //     };
+        let msgs = vec![wasm_msg.into()];
+        let title = "Transfer NFT".to_string();
+        let description = "Should we transfer this?".to_string();
+        (msgs, title, description)
+    }
 
-    //     // TODO: how do you convert a Cw721ExecuteMsg to a CosmosMsg?
+    fn transfer_nft_proposal(collection_addr: String) -> ExecuteMsg {
+        let (msgs, title, description) = proposal_nft_transfer_info(collection_addr);
+        ExecuteMsg::Propose {
+            title,
+            description,
+            msgs,
+            latest: None,
+        }
+    }
 
-    //     let msgs = vec![transfer_msg.into()];
-    //     let title = "Transfer NFT".to_string();
-    //     let description = "Should we transfer this?".to_string();
-    //     (msgs, title, description)
-    // }
+    #[test]
+    fn proposal_nft_transfer_works() {
+        let mut app = mock_app(&[]);
 
-    // fn transfer_nft_proposal() -> ExecuteMsg {
-    //     let (msgs, title, description) = proposal_info();
-    //     ExecuteMsg::Propose {
-    //         title,
-    //         description,
-    //         msgs,
-    //         latest: None,
-    //     }
-    // }
+        let collection_addr = setup_test_collection(&mut app);
 
-    fn proposal_nft_transfer_works() {}
+        let threshold = Threshold::ThresholdQuorum {
+            threshold: Decimal::percent(51),
+            quorum: Decimal::percent(1),
+        };
+        let voting_period = Duration::Time(2000000);
+        let (dao_addr, _) = setup_test_case(&mut app, threshold, voting_period, vec![], true, None);
+
+        // transfer NFT from collection to DAO
+        let transfer_msg: Cw721ExecuteMsg<Extension, Extension> = Cw721ExecuteMsg::TransferNft {
+            recipient: dao_addr.to_string(),
+            token_id: TOKEN_ID.into(),
+        };
+        app.execute_contract(
+            Addr::unchecked(OWNER),
+            collection_addr.clone(),
+            &transfer_msg,
+            &[],
+        )
+        .unwrap();
+
+        // create nft transfer proposal with 0 vote power
+        let proposal = transfer_nft_proposal(collection_addr.to_string());
+        let res = app
+            .execute_contract(Addr::unchecked(OWNER), dao_addr.clone(), &proposal, &[])
+            .unwrap();
+
+        // Get the proposal id from the logs
+        let proposal_id: u64 = res.custom_attrs(1)[2].value.parse().unwrap();
+
+        // Only Passed can be executed
+        let execution = ExecuteMsg::Execute { proposal_id };
+        let err = app
+            .execute_contract(Addr::unchecked(OWNER), dao_addr.clone(), &execution, &[])
+            .unwrap_err();
+        assert_eq!(
+            ContractError::Cw3FlexMultisig(Cw3FlexMultisigError::WrongExecuteStatus {}),
+            err.downcast().unwrap()
+        );
+
+        // Vote it, so it passes
+        let vote = ExecuteMsg::Vote {
+            proposal_id,
+            vote: Vote::Yes,
+        };
+        let res = app
+            .execute_contract(Addr::unchecked(VOTER4), dao_addr.clone(), &vote, &[])
+            .unwrap();
+        assert_eq!(
+            res.custom_attrs(1),
+            [
+                ("action", "vote"),
+                ("sender", VOTER4),
+                ("proposal_id", proposal_id.to_string().as_str()),
+                ("status", "Passed"),
+            ],
+        );
+
+        // In passing: Try to close Passed fails
+        let closing = ExecuteMsg::Close { proposal_id };
+        let err = app
+            .execute_contract(Addr::unchecked(OWNER), dao_addr.clone(), &closing, &[])
+            .unwrap_err();
+        assert_eq!(
+            ContractError::Cw3FlexMultisig(Cw3FlexMultisigError::WrongCloseStatus {}),
+            err.downcast().unwrap()
+        );
+
+        // Execute works. Anybody can execute Passed proposals
+        let res = app
+            .execute_contract(Addr::unchecked(SOMEBODY), dao_addr.clone(), &execution, &[])
+            .unwrap();
+        assert_eq!(
+            res.custom_attrs(1),
+            [
+                ("action", "execute"),
+                ("sender", SOMEBODY),
+                ("proposal_id", proposal_id.to_string().as_str()),
+            ],
+        );
+
+        // verify NFT was transfered
+        let res: OwnerOfResponse = app
+            .wrap()
+            .query_wasm_smart(
+                collection_addr,
+                &Cw721QueryMsg::OwnerOf {
+                    token_id: TOKEN_ID.to_string(),
+                    include_expired: None,
+                },
+            )
+            .unwrap();
+        assert_eq!(SOMEBODY, res.owner);
+
+        // In passing: Try to close Executed fails
+        let err = app
+            .execute_contract(Addr::unchecked(OWNER), dao_addr.clone(), &closing, &[])
+            .unwrap_err();
+        assert_eq!(
+            ContractError::Cw3FlexMultisig(Cw3FlexMultisigError::WrongCloseStatus {}),
+            err.downcast().unwrap()
+        );
+
+        // Trying to execute something that was already executed fails
+        let err = app
+            .execute_contract(Addr::unchecked(SOMEBODY), dao_addr, &execution, &[])
+            .unwrap_err();
+        assert_eq!(
+            ContractError::Cw3FlexMultisig(Cw3FlexMultisigError::WrongExecuteStatus {}),
+            err.downcast().unwrap()
+        );
+    }
 }

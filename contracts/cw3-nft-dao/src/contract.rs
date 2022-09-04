@@ -1,8 +1,7 @@
 #[cfg(not(feature = "library"))]
 use cosmwasm_std::entry_point;
 use cosmwasm_std::{
-    to_binary, Addr, Binary, BlockInfo, Deps, DepsMut, Env, MessageInfo, Order, Reply, Response,
-    StdResult, SubMsg, WasmMsg,
+    to_binary, Binary, BlockInfo, Deps, DepsMut, Env, MessageInfo, Order, Response, StdResult,
 };
 use cw2::set_contract_version;
 use cw3::{
@@ -16,28 +15,20 @@ use cw3_flex_multisig::contract::{
 use cw3_flex_multisig::state::{Config, CONFIG};
 use cw3_flex_multisig::ContractError as Cw3FlexMultisigError;
 use cw4::{Cw4Contract, MemberChangedHookMsg};
-use cw721::Cw721ReceiveMsg;
-use cw721_base::{
-    ExecuteMsg as Cw721BaseExecuteMsg, Extension, InstantiateMsg as Cw721BaseInstantiateMsg,
-    MintMsg as Cw721BaseMintMsg,
-};
 use cw_storage_plus::Bound;
-use cw_utils::{maybe_addr, parse_reply_instantiate_data, ThresholdResponse};
+use cw_utils::{maybe_addr, ThresholdResponse};
 
 use crate::error::ContractError;
-use crate::msg::{ExecuteMsg, InstantiateMsg, QueryMsg, VaultResponse};
-use crate::state::VAULT;
+use crate::msg::{ExecuteMsg, InstantiateMsg, QueryMsg};
 
 // version info for migration info
 pub const CONTRACT_NAME: &str = "crates.io:cw3-nft-dao";
 pub const CONTRACT_VERSION: &str = env!("CARGO_PKG_VERSION");
 
-const INIT_VAULT_REPLY_ID: u64 = 1;
-
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn instantiate(
     deps: DepsMut,
-    env: Env,
+    _env: Env,
     _info: MessageInfo,
     msg: InstantiateMsg,
 ) -> Result<Response, ContractError> {
@@ -59,26 +50,9 @@ pub fn instantiate(
     };
     CONFIG.save(deps.storage, &cfg)?;
 
-    // create vault
-    let init_msg = Cw721BaseInstantiateMsg {
-        name: "DAO-NFT-Vault".to_string(),
-        symbol: "VAULT".to_string(),
-        minter: env.contract.address.to_string(),
-    };
-    let wasm_msg = WasmMsg::Instantiate {
-        admin: None,
-        code_id: msg.vault_code_id,
-        msg: to_binary(&init_msg)?,
-        funds: vec![],
-        label: init_msg.name,
-    };
-    let submsg = SubMsg::reply_on_success(wasm_msg, INIT_VAULT_REPLY_ID);
-
-    Ok(Response::default().add_submessage(submsg))
+    Ok(Response::default())
 }
 
-// TODO: Instead of duplicating variant handling from cw3-flex0-multisig, see `msg` can be converted to the right type.
-// Ideally this only handles ReceiveNft {} and delegates the rest to cw3-flex-multisig
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn execute(
     deps: DepsMut,
@@ -109,59 +83,9 @@ pub fn execute(
         ExecuteMsg::MemberChangedHook(MemberChangedHookMsg { diffs }) => {
             Ok(execute_membership_hook(deps, env, info, diffs)?)
         }
-        ExecuteMsg::ReceiveNft(msg) => execute_receive_nft(deps, env, info, msg),
     }
 }
 
-pub fn execute_receive_nft(
-    deps: DepsMut,
-    env: Env,
-    info: MessageInfo,
-    wrapper: Cw721ReceiveMsg,
-) -> Result<Response, ContractError> {
-    let sending_collection = info.sender;
-    let dao_address = env.contract.address;
-
-    // Mint the received NFT into the internal vault.
-    // Because the owner is this contract, we don't need any allowance to send it again.
-    let mint_msg = Cw721BaseMintMsg::<Extension> {
-        token_id: wrapper.token_id.clone(),
-        owner: dao_address.to_string(),
-        token_uri: Some(sending_collection.to_string()),
-        extension: None,
-    };
-    let msg = Cw721BaseExecuteMsg::Mint::<Extension, Extension>(mint_msg);
-    let msg = WasmMsg::Execute {
-        contract_addr: VAULT.load(deps.storage)?.to_string(),
-        msg: to_binary(&msg)?,
-        funds: vec![],
-    };
-
-    Ok(Response::new()
-        .add_attribute("action", "receive_nft")
-        .add_message(msg)
-        .add_attribute("from", wrapper.sender)
-        .add_attribute("token_id", wrapper.token_id))
-}
-
-#[cfg_attr(not(feature = "library"), entry_point)]
-pub fn reply(deps: DepsMut, _env: Env, msg: Reply) -> Result<Response, ContractError> {
-    if msg.id != INIT_VAULT_REPLY_ID {
-        return Err(ContractError::InvalidReplyID {});
-    }
-
-    let reply = parse_reply_instantiate_data(msg);
-    match reply {
-        Ok(res) => {
-            VAULT.save(deps.storage, &Addr::unchecked(res.contract_address))?;
-            Ok(Response::default().add_attribute("action", "reply_on_success"))
-        }
-        Err(_) => Err(ContractError::ReplyOnSuccess {}),
-    }
-}
-
-// TODO: Instead of duplicating variant handling from cw3-flex0-multisig, see `msg` can be converted to the right type.
-// Ideally this only handles Vault {} and delegates the rest to cw3-flex-multisig's query function
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
     match msg {
@@ -184,16 +108,8 @@ pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
         QueryMsg::ListVoters { start_after, limit } => {
             to_binary(&list_voters(deps, start_after, limit)?)
         }
-        QueryMsg::Vault {} => to_binary(&query_vault(deps)?),
     }
 }
-
-fn query_vault(deps: Deps) -> StdResult<VaultResponse> {
-    let addr = VAULT.load(deps.storage)?.to_string();
-    Ok(VaultResponse { addr })
-}
-
-// TODO: All query functions are private in cw3 contracts, so we have to duplicate them here.
 
 fn query_threshold(deps: Deps) -> StdResult<ThresholdResponse> {
     let cfg = CONFIG.load(deps.storage)?;
