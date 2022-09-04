@@ -124,6 +124,21 @@ pub fn execute_receive_nft(
 
     // Mint the received NFT into the internal vault.
     // Because the owner is this contract, we don't need any allowance to send it again.
+
+    // TODO: cannot just use token_id here since it is not unique across collections
+    // TODO: save wrapper.sender somewhere so the original sender is accounted for (future NFT voting power?)
+    // Maybe this should just track NFTs in a Map and not be an actual cw721?
+    // key: (collection, token_id) -> Nft
+    pub struct Nft {
+        pub collection: Addr,
+        pub token_id: String,
+        pub sender: Addr,
+    }
+    // store as indexed-map, so can query by sender...
+
+    // TODO: this data will quickly get stale since the DAO can perform actions like transfer and burn
+    // directly on the collection contract, since it's the owner.
+
     let mint_msg = Cw721BaseMintMsg::<Extension> {
         token_id: wrapper.token_id.clone(),
         owner: dao_address.to_string(),
