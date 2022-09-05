@@ -8,9 +8,9 @@ authors = [
 edition = "2018"
 description = "cw4 implementation of group membership backed by an NFT collection"
 license = "Apache-2.0"
-repository = "https://github.com/CosmWasm/cw-plus"
-homepage = "https://cosmwasm.com"
-documentation = "https://docs.cosmwasm.com"
+repository = "https://github.com/public-awesome/daos"
+homepage = "https://stargaze.zone"
+documentation = "https://docs.stargaze.zone"
 
 exclude = [
   # Those files are rust-optimizer artifacts. You might want to commit them for convenience but they should not be part of the source code publication.
