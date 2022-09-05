@@ -12,7 +12,7 @@ use cw3::{
     VoterDetail, VoterListResponse, VoterResponse,
 };
 use cw3_fixed_multisig::state::{next_id, Ballot, Proposal, Votes, BALLOTS, PROPOSALS};
-use cw4::{Cw4Contract, MemberChangedHookMsg, MemberDiff};
+use cw4::Cw4Contract;
 use cw4_group::msg::InstantiateMsg as Cw4GroupInstantiateMsg;
 use cw_storage_plus::Bound;
 use cw_utils::{maybe_addr, parse_reply_instantiate_data, Expiration, ThresholdResponse};
@@ -89,9 +89,6 @@ pub fn execute(
         }
         ExecuteMsg::Execute { proposal_id } => Ok(execute_execute(deps, env, info, proposal_id)?),
         ExecuteMsg::Close { proposal_id } => Ok(execute_close(deps, env, info, proposal_id)?),
-        ExecuteMsg::MemberChangedHook(MemberChangedHookMsg { diffs }) => {
-            Ok(execute_membership_hook(deps, env, info, diffs)?)
-        }
     }
 }
 
@@ -264,23 +261,6 @@ pub fn execute_close(
         .add_attribute("action", "close")
         .add_attribute("sender", info.sender)
         .add_attribute("proposal_id", proposal_id.to_string()))
-}
-
-// TODO: how does this work now? get rid of this?
-pub fn execute_membership_hook(
-    deps: DepsMut,
-    _env: Env,
-    info: MessageInfo,
-    _diffs: Vec<MemberDiff>,
-) -> Result<Response<Empty>, ContractError> {
-    // This is now a no-op
-    // But we leave the authorization check as a demo
-    let group = GROUP.load(deps.storage)?;
-    if info.sender != group.0 {
-        return Err(ContractError::Unauthorized {});
-    }
-
-    Ok(Response::default())
 }
 
 #[cfg_attr(not(feature = "library"), entry_point)]

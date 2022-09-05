@@ -2,12 +2,10 @@
 use cosmwasm_std::entry_point;
 use cosmwasm_std::{
     attr, to_binary, Addr, Binary, Deps, DepsMut, Env, MessageInfo, Order, Response, StdResult,
-    SubMsg,
 };
 use cw2::set_contract_version;
 use cw4::{
-    Member, MemberChangedHookMsg, MemberDiff, MemberListResponse, MemberResponse,
-    TotalWeightResponse,
+    HooksResponse, Member, MemberDiff, MemberListResponse, MemberResponse, TotalWeightResponse,
 };
 use cw721::{Cw721QueryMsg, OwnerOfResponse, TokensResponse};
 use cw_storage_plus::Bound;
@@ -15,7 +13,7 @@ use cw_utils::maybe_addr;
 
 use crate::error::ContractError;
 use crate::msg::{ExecuteMsg, InstantiateMsg, QueryMsg};
-use crate::state::{Config, ADMIN, CONFIG, HOOKS, MEMBERS, TOTAL};
+use crate::state::{Config, ADMIN, CONFIG, MEMBERS, TOTAL};
 
 // version info for migration info
 const CONTRACT_NAME: &str = "crates.io:sg-nft-group";
@@ -27,16 +25,20 @@ const CONTRACT_VERSION: &str = env!("CARGO_PKG_VERSION");
 pub fn instantiate(
     deps: DepsMut,
     env: Env,
-    _info: MessageInfo,
+    info: MessageInfo,
     msg: InstantiateMsg,
 ) -> Result<Response, ContractError> {
     set_contract_version(deps.storage, CONTRACT_NAME, CONTRACT_VERSION)?;
-    create(deps, msg.admin, msg.collection_addr, env.block.height)?;
+    create(
+        deps,
+        msg.admin,
+        msg.collection_addr,
+        env.block.height,
+        info.sender,
+    )?;
     Ok(Response::default())
 }
 
-// TODO: check how much gas this takes for 10,000 tokens
-// TODO: maybe check the number of tokens in collection, and have a max?
 // create is the instantiation logic with set_contract_version removed so it can more
 // easily be imported in other contracts
 pub fn create(
@@ -44,6 +46,7 @@ pub fn create(
     admin: Option<String>,
     collection_addr: String,
     height: u64,
+    sender: Addr,
 ) -> Result<(), ContractError> {
     let admin_addr = admin
         .map(|admin| deps.api.addr_validate(&admin))
@@ -52,15 +55,59 @@ pub fn create(
 
     let collection = deps.api.addr_validate(&collection_addr)?;
 
-    CONFIG.save(
-        deps.storage,
-        &Config {
-            collection: collection.clone(),
-        },
-    )?;
+    CONFIG.save(deps.storage, &Config { collection })?;
+
+    update_members(deps.branch(), height, sender)?;
+
+    Ok(())
+}
+
+// And declare a custom Error variant for the ones where you will want to make use of it
+#[cfg_attr(not(feature = "library"), entry_point)]
+pub fn execute(
+    deps: DepsMut,
+    env: Env,
+    info: MessageInfo,
+    msg: ExecuteMsg,
+) -> Result<Response, ContractError> {
+    let api = deps.api;
+    match msg {
+        ExecuteMsg::UpdateAdmin { admin } => Ok(ADMIN.execute_update_admin(
+            deps,
+            info,
+            admin.map(|admin| api.addr_validate(&admin)).transpose()?,
+        )?),
+        ExecuteMsg::AddHook { addr: _ } => Err(ContractError::HooksUnsupported {}),
+        ExecuteMsg::RemoveHook { addr: _ } => Err(ContractError::HooksUnsupported {}),
+        ExecuteMsg::UpdateMembers {} => execute_update_members(deps, env, info),
+    }
+}
+
+pub fn execute_update_members(
+    mut deps: DepsMut,
+    env: Env,
+    info: MessageInfo,
+) -> Result<Response, ContractError> {
+    let attributes = vec![
+        attr("action", "update_members"),
+        attr("sender", &info.sender),
+    ];
+
+    update_members(deps.branch(), env.block.height, info.sender)?;
+    Ok(Response::new().add_attributes(attributes))
+}
+
+// the logic from execute_update_members extracted for easier import
+pub fn update_members(deps: DepsMut, height: u64, sender: Addr) -> Result<(), ContractError> {
+    ADMIN.assert_admin(deps.as_ref(), &sender)?;
+
+    let collection = CONFIG.load(deps.storage)?.collection;
 
     let mut total = 0u64;
     let mut diffs: Vec<MemberDiff> = vec![];
+
+    // TODO: check how much gas this takes for 10,000 tokens
+    // TODO: maybe check the number of tokens in collection, and have a max?
 
     // fetch all owners from the collection
     let all_tokens_msg = Cw721QueryMsg::AllTokens {
@@ -97,93 +144,6 @@ pub fn create(
     Ok(())
 }
 
-// And declare a custom Error variant for the ones where you will want to make use of it
-#[cfg_attr(not(feature = "library"), entry_point)]
-pub fn execute(
-    deps: DepsMut,
-    env: Env,
-    info: MessageInfo,
-    msg: ExecuteMsg,
-) -> Result<Response, ContractError> {
-    let api = deps.api;
-    match msg {
-        ExecuteMsg::UpdateAdmin { admin } => Ok(ADMIN.execute_update_admin(
-            deps,
-            info,
-            admin.map(|admin| api.addr_validate(&admin)).transpose()?,
-        )?),
-        ExecuteMsg::UpdateMembers {} => execute_update_members(deps, env, info),
-        ExecuteMsg::AddHook { addr } => {
-            Ok(HOOKS.execute_add_hook(&ADMIN, deps, info, api.addr_validate(&addr)?)?)
-        }
-        ExecuteMsg::RemoveHook { addr } => {
-            Ok(HOOKS.execute_remove_hook(&ADMIN, deps, info, api.addr_validate(&addr)?)?)
-        }
-    }
-}
-
-pub fn execute_update_members(
-    mut deps: DepsMut,
-    env: Env,
-    info: MessageInfo,
-) -> Result<Response, ContractError> {
-    let attributes = vec![
-        attr("action", "update_members"),
-        // attr("added", add.len().to_string()),
-        // attr("removed", remove.len().to_string()),
-        attr("sender", &info.sender),
-    ];
-
-    // make the local update
-    let diff = update_members(deps.branch(), env.block.height, info.sender, add, remove)?;
-    // call all registered hooks
-    let messages = HOOKS.prepare_hooks(deps.storage, |h| {
-        diff.clone().into_cosmos_msg(h).map(SubMsg::new)
-    })?;
-    Ok(Response::new()
-        .add_submessages(messages)
-        .add_attributes(attributes))
-}
-
-// the logic from execute_update_members extracted for easier import
-pub fn update_members(
-    deps: DepsMut,
-    height: u64,
-    sender: Addr,
-    to_add: Vec<Member>,
-    to_remove: Vec<String>,
-) -> Result<MemberChangedHookMsg, ContractError> {
-    ADMIN.assert_admin(deps.as_ref(), &sender)?;
-
-    let mut total = TOTAL.load(deps.storage)?;
-    let mut diffs: Vec<MemberDiff> = vec![];
-
-    // add all new members and update total
-    for add in to_add.into_iter() {
-        let add_addr = deps.api.addr_validate(&add.addr)?;
-        MEMBERS.update(deps.storage, &add_addr, height, |old| -> StdResult<_> {
-            total -= old.unwrap_or_default();
-            total += add.weight;
-            diffs.push(MemberDiff::new(add.addr, old, Some(add.weight)));
-            Ok(add.weight)
-        })?;
-    }
-
-    for remove in to_remove.into_iter() {
-        let remove_addr = deps.api.addr_validate(&remove)?;
-        let old = MEMBERS.may_load(deps.storage, &remove_addr)?;
-        // Only process this if they were actually in the list before
-        if let Some(weight) = old {
-            diffs.push(MemberDiff::new(remove, Some(weight), None));
-            total -= weight;
-            MEMBERS.remove(deps.storage, &remove_addr, height)?;
-        }
-    }
-
-    TOTAL.save(deps.storage, &total)?;
-    Ok(MemberChangedHookMsg { diffs })
-}
-
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
     match msg {
@@ -196,8 +156,12 @@ pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
         }
         QueryMsg::TotalWeight {} => to_binary(&query_total_weight(deps)?),
         QueryMsg::Admin {} => to_binary(&ADMIN.query_admin(deps)?),
-        QueryMsg::Hooks {} => to_binary(&HOOKS.query_hooks(deps)?),
+        QueryMsg::Hooks {} => to_binary(&query_hooks()?),
     }
+}
+
+pub fn query_hooks() -> StdResult<HooksResponse> {
+    Ok(HooksResponse { hooks: vec![] })
 }
 
 fn query_total_weight(deps: Deps) -> StdResult<TotalWeightResponse> {
@@ -511,63 +475,6 @@ mod tests {
         let hooks = HOOKS.query_hooks(deps.as_ref()).unwrap();
         assert_eq!(hooks.hooks, vec![contract2]);
     }
-
-    // #[test]
-    // fn hooks_fire() {
-    //     let mut deps = mock_dependencies();
-    //     do_instantiate(deps.as_mut());
-
-    //     let hooks = HOOKS.query_hooks(deps.as_ref()).unwrap();
-    //     assert!(hooks.hooks.is_empty());
-
-    //     let contract1 = String::from("hook1");
-    //     let contract2 = String::from("hook2");
-
-    //     // register 2 hooks
-    //     let admin_info = mock_info(INIT_ADMIN, &[]);
-    //     let add_msg = ExecuteMsg::AddHook {
-    //         addr: contract1.clone(),
-    //     };
-    //     let add_msg2 = ExecuteMsg::AddHook {
-    //         addr: contract2.clone(),
-    //     };
-    //     for msg in vec![add_msg, add_msg2] {
-    //         let _ = execute(deps.as_mut(), mock_env(), admin_info.clone(), msg).unwrap();
-    //     }
-
-    //     // make some changes - add 3, remove 2, and update 1
-    //     // USER1 is updated and remove in the same call, we should remove this an add member3
-    //     let add = vec![
-    //         Member {
-    //             addr: USER1.into(),
-    //             weight: 20,
-    //         },
-    //         Member {
-    //             addr: USER3.into(),
-    //             weight: 5,
-    //         },
-    //     ];
-    //     let remove = vec![USER2.into()];
-    //     let msg = ExecuteMsg::UpdateMembers { remove, add };
-
-    //     // admin updates properly
-    //     assert_users(&deps, Some(11), Some(6), None, None);
-    //     let res = execute(deps.as_mut(), mock_env(), admin_info, msg).unwrap();
-    //     assert_users(&deps, Some(20), None, Some(5), None);
-
-    //     // ensure 2 messages for the 2 hooks
-    //     assert_eq!(res.messages.len(), 2);
-    //     // same order as in the message (adds first, then remove)
-    //     let diffs = vec![
-    //         MemberDiff::new(USER1, Some(11), Some(20)),
-    //         MemberDiff::new(USER3, None, Some(5)),
-    //         MemberDiff::new(USER2, Some(6), None),
-    //     ];
-    //     let hook_msg = MemberChangedHookMsg { diffs };
-    //     let msg1 = SubMsg::new(hook_msg.clone().into_cosmos_msg(contract1).unwrap());
-    //     let msg2 = SubMsg::new(hook_msg.into_cosmos_msg(contract2).unwrap());
-    //     assert_eq!(res.messages, vec![msg1, msg2]);
-    // }
 
     #[test]
     fn raw_queries_work() {

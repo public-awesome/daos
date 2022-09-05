@@ -1,12 +1,11 @@
 use cosmwasm_std::Addr;
 use cw4::TOTAL_KEY;
-use cw_controllers::{Admin, Hooks};
+use cw_controllers::Admin;
 use cw_storage_plus::{Item, SnapshotMap, Strategy};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 pub const ADMIN: Admin = Admin::new("admin");
-pub const HOOKS: Hooks = Hooks::new("sg-nft-hooks");
 
 pub const TOTAL: Item<u64> = Item::new(TOTAL_KEY);
 

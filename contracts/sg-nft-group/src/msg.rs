@@ -15,12 +15,12 @@ pub struct InstantiateMsg {
 pub enum ExecuteMsg {
     /// Change the admin
     UpdateAdmin { admin: Option<String> },
-    /// Custom method to update member weights based on collection changes
-    UpdateMembers {},
     /// Add a new hook to be informed of all membership changes. Must be called by Admin
     AddHook { addr: String },
     /// Remove a hook. Must be called by Admin
     RemoveHook { addr: String },
+    /// Custom method to update member weights based on collection ownership changes
+    UpdateMembers {},
 }
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, JsonSchema, Debug)]

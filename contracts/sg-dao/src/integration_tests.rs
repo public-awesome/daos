@@ -15,7 +15,7 @@ mod tests {
         VoteResponse, VoterDetail, VoterListResponse,
     };
     use cw3_flex_multisig::state::Executor as Cw3Executor;
-    use cw4::{Member, MemberChangedHookMsg, MemberDiff};
+    use cw4::Member;
     use cw4_group::helpers::Cw4GroupContract;
     use cw721::{Cw721QueryMsg, OwnerOfResponse};
     use cw721_base::{
@@ -1146,15 +1146,6 @@ mod tests {
                 &cash_proposal,
                 &[],
             )
-            .unwrap_err();
-        assert_eq!(ContractError::Unauthorized {}, err.downcast().unwrap());
-
-        // extra: ensure no one else can call the hook
-        let hook_hack = ExecuteMsg::MemberChangedHook(MemberChangedHookMsg {
-            diffs: vec![MemberDiff::new(VOTER1, Some(1), None)],
-        });
-        let err = app
-            .execute_contract(Addr::unchecked(VOTER2), dao_addr.clone(), &hook_hack, &[])
             .unwrap_err();
         assert_eq!(ContractError::Unauthorized {}, err.downcast().unwrap());
     }

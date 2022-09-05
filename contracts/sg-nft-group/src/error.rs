@@ -16,4 +16,7 @@ pub enum ContractError {
 
     #[error("Unauthorized")]
     Unauthorized {},
+
+    #[error("HooksUnsupported")]
+    HooksUnsupported {},
 }
