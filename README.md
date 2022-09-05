@@ -2,10 +2,10 @@
 
 ## Contracts
 
-### cw3-nft-dao
+### sg-dao
 
-A cw3-compliant DAO contract that includes an NFT vault.
+A cw3 DAO contract that instantiates and wraps a cw4 group.
 
-### dao-minter
+### sg-nft-group
 
-A Stargaze minter that mints DAOs as NFTs.
+A cw4 group based on ownership of NFTs in a collection. It can be used as a drop-in replacement for cw4-group in sg-dao to create a DAO based on NFT ownership.
