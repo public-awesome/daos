@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use std::ops::Deref;
 
 use cosmwasm_std::{to_binary, Addr, CosmosMsg, StdResult, WasmMsg};
-use cw4::{Cw4Contract, Member};
+use cw4::Cw4Contract;
 
 use crate::msg::ExecuteMsg;
 
@@ -36,8 +36,8 @@ impl Cw4GroupContract {
         .into())
     }
 
-    pub fn update_members(&self, remove: Vec<String>, add: Vec<Member>) -> StdResult<CosmosMsg> {
-        let msg = ExecuteMsg::UpdateMembers { remove, add };
-        self.encode_msg(msg)
-    }
+    // pub fn update_members(&self, remove: Vec<String>, add: Vec<Member>) -> StdResult<CosmosMsg> {
+    //     let msg = ExecuteMsg::UpdateMembers { remove, add };
+    //     self.encode_msg(msg)
+    // }
 }

@@ -9,8 +9,7 @@ use cw4::{
     Member, MemberChangedHookMsg, MemberDiff, MemberListResponse, MemberResponse,
     TotalWeightResponse,
 };
-use cw721::{Cw721QueryMsg, TokensResponse};
-use cw721_base::helpers::Cw721Contract;
+use cw721::{Cw721QueryMsg, OwnerOfResponse, TokensResponse};
 use cw_storage_plus::Bound;
 use cw_utils::maybe_addr;
 
@@ -19,7 +18,7 @@ use crate::msg::{ExecuteMsg, InstantiateMsg, QueryMsg};
 use crate::state::{Config, ADMIN, CONFIG, HOOKS, MEMBERS, TOTAL};
 
 // version info for migration info
-const CONTRACT_NAME: &str = "crates.io:cw4-group";
+const CONTRACT_NAME: &str = "crates.io:sg-nft-group";
 const CONTRACT_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 // Note, you can use StdResult in some functions where you do not
@@ -36,6 +35,8 @@ pub fn instantiate(
     Ok(Response::default())
 }
 
+// TODO: check how much gas this takes for 10,000 tokens
+// TODO: maybe check the number of tokens in collection, and have a max?
 // create is the instantiation logic with set_contract_version removed so it can more
 // easily be imported in other contracts
 pub fn create(
@@ -49,14 +50,17 @@ pub fn create(
         .transpose()?;
     ADMIN.set(deps.branch(), admin_addr)?;
 
+    let collection = deps.api.addr_validate(&collection_addr)?;
+
     CONFIG.save(
         deps.storage,
         &Config {
-            collection: deps.api.addr_validate(&collection_addr)?,
+            collection: collection.clone(),
         },
     )?;
 
     let mut total = 0u64;
+    let mut diffs: Vec<MemberDiff> = vec![];
 
     // fetch all owners from the collection
     let all_tokens_msg = Cw721QueryMsg::AllTokens {
@@ -65,50 +69,29 @@ pub fn create(
     };
     let res: TokensResponse = deps
         .querier
-        .query_wasm_smart(collection_addr, &all_tokens_msg)?;
+        .query_wasm_smart(collection.to_string(), &all_tokens_msg)?;
 
-    // TODO: check how much gas this takes for 10,000 tokens
     // create a member for each owner
-    // let members = res.tokens.into_iter().map(|token| {
-    //     let owner = deps
-    //         .querier
-    //         .query_wasm_smart(
-    //             collection_addr.clone(),
-    //             &Cw721QueryMsg::OwnerOf {
-    //                 token_id: token.clone(),
-    //                 include_expired: None,
-    //             },
-    //         )
-    //         .unwrap();
-    //     let member = Member {
-    //         addr: owner,
-    //         weight: 1,
-    //     };
-    //     total += 1;
-    //     (token, member)
-    // });
     for token in res.tokens {
-        let owner = deps.querier.query_wasm_smart(
-            collection_addr,
+        let res: OwnerOfResponse = deps.querier.query_wasm_smart(
+            collection.to_string(),
             &Cw721QueryMsg::OwnerOf {
                 token_id: token.clone(),
                 include_expired: None,
             },
         )?;
-        let member = Member {
-            addr: owner,
-            weight: 1,
-        };
-        // TODO: use MEMBERS.update..
-        // MEMBERS.save(deps.storage, token.as_bytes(), &member)?;
-        total += 1;
+        let owner = res.owner;
+
+        let add_addr = deps.api.addr_validate(&owner)?;
+        MEMBERS.update(deps.storage, &add_addr, height, |old| -> StdResult<_> {
+            let old_weight = old.unwrap_or_default();
+            let new_weight = old_weight + 1;
+            total += 1;
+            diffs.push(MemberDiff::new(owner, old, Some(new_weight)));
+            Ok(new_weight)
+        })?;
     }
 
-    for member in members.into_iter() {
-        total += member.weight;
-        let member_addr = deps.api.addr_validate(&member.addr)?;
-        MEMBERS.save(deps.storage, &member_addr, &member.weight, height)?;
-    }
     TOTAL.save(deps.storage, &total)?;
 
     Ok(())
@@ -129,9 +112,7 @@ pub fn execute(
             info,
             admin.map(|admin| api.addr_validate(&admin)).transpose()?,
         )?),
-        ExecuteMsg::UpdateMembers { add, remove } => {
-            execute_update_members(deps, env, info, add, remove)
-        }
+        ExecuteMsg::UpdateMembers {} => execute_update_members(deps, env, info),
         ExecuteMsg::AddHook { addr } => {
             Ok(HOOKS.execute_add_hook(&ADMIN, deps, info, api.addr_validate(&addr)?)?)
         }
@@ -145,13 +126,11 @@ pub fn execute_update_members(
     mut deps: DepsMut,
     env: Env,
     info: MessageInfo,
-    add: Vec<Member>,
-    remove: Vec<String>,
 ) -> Result<Response, ContractError> {
     let attributes = vec![
         attr("action", "update_members"),
-        attr("added", add.len().to_string()),
-        attr("removed", remove.len().to_string()),
+        // attr("added", add.len().to_string()),
+        // attr("removed", remove.len().to_string()),
         attr("sender", &info.sender),
     ];
 
@@ -278,16 +257,17 @@ mod tests {
     fn do_instantiate(deps: DepsMut) {
         let msg = InstantiateMsg {
             admin: Some(INIT_ADMIN.into()),
-            members: vec![
-                Member {
-                    addr: USER1.into(),
-                    weight: 11,
-                },
-                Member {
-                    addr: USER2.into(),
-                    weight: 6,
-                },
-            ],
+            collection_addr: "collection".to_string(),
+            // members: vec![
+            //     Member {
+            //         addr: USER1.into(),
+            //         weight: 11,
+            //     },
+            //     Member {
+            //         addr: USER2.into(),
+            //         weight: 6,
+            //     },
+            // ],
         };
         let info = mock_info("creator", &[]);
         instantiate(deps, mock_env(), info, msg).unwrap();
@@ -532,62 +512,62 @@ mod tests {
         assert_eq!(hooks.hooks, vec![contract2]);
     }
 
-    #[test]
-    fn hooks_fire() {
-        let mut deps = mock_dependencies();
-        do_instantiate(deps.as_mut());
+    // #[test]
+    // fn hooks_fire() {
+    //     let mut deps = mock_dependencies();
+    //     do_instantiate(deps.as_mut());
 
-        let hooks = HOOKS.query_hooks(deps.as_ref()).unwrap();
-        assert!(hooks.hooks.is_empty());
+    //     let hooks = HOOKS.query_hooks(deps.as_ref()).unwrap();
+    //     assert!(hooks.hooks.is_empty());
 
-        let contract1 = String::from("hook1");
-        let contract2 = String::from("hook2");
+    //     let contract1 = String::from("hook1");
+    //     let contract2 = String::from("hook2");
 
-        // register 2 hooks
-        let admin_info = mock_info(INIT_ADMIN, &[]);
-        let add_msg = ExecuteMsg::AddHook {
-            addr: contract1.clone(),
-        };
-        let add_msg2 = ExecuteMsg::AddHook {
-            addr: contract2.clone(),
-        };
-        for msg in vec![add_msg, add_msg2] {
-            let _ = execute(deps.as_mut(), mock_env(), admin_info.clone(), msg).unwrap();
-        }
+    //     // register 2 hooks
+    //     let admin_info = mock_info(INIT_ADMIN, &[]);
+    //     let add_msg = ExecuteMsg::AddHook {
+    //         addr: contract1.clone(),
+    //     };
+    //     let add_msg2 = ExecuteMsg::AddHook {
+    //         addr: contract2.clone(),
+    //     };
+    //     for msg in vec![add_msg, add_msg2] {
+    //         let _ = execute(deps.as_mut(), mock_env(), admin_info.clone(), msg).unwrap();
+    //     }
 
-        // make some changes - add 3, remove 2, and update 1
-        // USER1 is updated and remove in the same call, we should remove this an add member3
-        let add = vec![
-            Member {
-                addr: USER1.into(),
-                weight: 20,
-            },
-            Member {
-                addr: USER3.into(),
-                weight: 5,
-            },
-        ];
-        let remove = vec![USER2.into()];
-        let msg = ExecuteMsg::UpdateMembers { remove, add };
+    //     // make some changes - add 3, remove 2, and update 1
+    //     // USER1 is updated and remove in the same call, we should remove this an add member3
+    //     let add = vec![
+    //         Member {
+    //             addr: USER1.into(),
+    //             weight: 20,
+    //         },
+    //         Member {
+    //             addr: USER3.into(),
+    //             weight: 5,
+    //         },
+    //     ];
+    //     let remove = vec![USER2.into()];
+    //     let msg = ExecuteMsg::UpdateMembers { remove, add };
 
-        // admin updates properly
-        assert_users(&deps, Some(11), Some(6), None, None);
-        let res = execute(deps.as_mut(), mock_env(), admin_info, msg).unwrap();
-        assert_users(&deps, Some(20), None, Some(5), None);
+    //     // admin updates properly
+    //     assert_users(&deps, Some(11), Some(6), None, None);
+    //     let res = execute(deps.as_mut(), mock_env(), admin_info, msg).unwrap();
+    //     assert_users(&deps, Some(20), None, Some(5), None);
 
-        // ensure 2 messages for the 2 hooks
-        assert_eq!(res.messages.len(), 2);
-        // same order as in the message (adds first, then remove)
-        let diffs = vec![
-            MemberDiff::new(USER1, Some(11), Some(20)),
-            MemberDiff::new(USER3, None, Some(5)),
-            MemberDiff::new(USER2, Some(6), None),
-        ];
-        let hook_msg = MemberChangedHookMsg { diffs };
-        let msg1 = SubMsg::new(hook_msg.clone().into_cosmos_msg(contract1).unwrap());
-        let msg2 = SubMsg::new(hook_msg.into_cosmos_msg(contract2).unwrap());
-        assert_eq!(res.messages, vec![msg1, msg2]);
-    }
+    //     // ensure 2 messages for the 2 hooks
+    //     assert_eq!(res.messages.len(), 2);
+    //     // same order as in the message (adds first, then remove)
+    //     let diffs = vec![
+    //         MemberDiff::new(USER1, Some(11), Some(20)),
+    //         MemberDiff::new(USER3, None, Some(5)),
+    //         MemberDiff::new(USER2, Some(6), None),
+    //     ];
+    //     let hook_msg = MemberChangedHookMsg { diffs };
+    //     let msg1 = SubMsg::new(hook_msg.clone().into_cosmos_msg(contract1).unwrap());
+    //     let msg2 = SubMsg::new(hook_msg.into_cosmos_msg(contract2).unwrap());
+    //     assert_eq!(res.messages, vec![msg1, msg2]);
+    // }
 
     #[test]
     fn raw_queries_work() {
