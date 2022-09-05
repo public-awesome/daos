@@ -1,7 +1,10 @@
-use cosmwasm_schema::{cw_serde, QueryResponses};
+use schemars::JsonSchema;
+use serde::{Deserialize, Serialize};
+
 use cw4::Member;
 
-#[cw_serde]
+#[derive(Serialize, Deserialize, Clone, PartialEq, JsonSchema, Debug)]
+#[serde(rename_all = "snake_case")]
 pub struct InstantiateMsg {
     /// The admin is the only account that can update the group state.
     /// Omit it to make the group immutable.
@@ -9,7 +12,8 @@ pub struct InstantiateMsg {
     pub members: Vec<Member>,
 }
 
-#[cw_serde]
+#[derive(Serialize, Deserialize, Clone, PartialEq, JsonSchema, Debug)]
+#[serde(rename_all = "snake_case")]
 pub enum ExecuteMsg {
     /// Change the admin
     UpdateAdmin { admin: Option<String> },
@@ -25,24 +29,23 @@ pub enum ExecuteMsg {
     RemoveHook { addr: String },
 }
 
-#[cw_serde]
-#[derive(QueryResponses)]
+#[derive(Serialize, Deserialize, Clone, PartialEq, JsonSchema, Debug)]
+#[serde(rename_all = "snake_case")]
 pub enum QueryMsg {
-    #[returns(cw_controllers::AdminResponse)]
+    /// Return AdminResponse
     Admin {},
-    #[returns(cw4::TotalWeightResponse)]
+    /// Return TotalWeightResponse
     TotalWeight {},
-    #[returns(cw4::MemberListResponse)]
+    /// Returns MembersListResponse
     ListMembers {
         start_after: Option<String>,
         limit: Option<u32>,
     },
-    #[returns(cw4::MemberResponse)]
+    /// Returns MemberResponse
     Member {
         addr: String,
         at_height: Option<u64>,
     },
-    /// Shows all registered hooks.
-    #[returns(cw_controllers::HooksResponse)]
+    /// Shows all registered hooks. Returns HooksResponse.
     Hooks {},
 }

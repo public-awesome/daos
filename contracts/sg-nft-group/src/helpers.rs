@@ -1,6 +1,7 @@
+use schemars::JsonSchema;
+use serde::{Deserialize, Serialize};
 use std::ops::Deref;
 
-use cosmwasm_schema::cw_serde;
 use cosmwasm_std::{to_binary, Addr, CosmosMsg, StdResult, WasmMsg};
 use cw4::{Cw4Contract, Member};
 
@@ -10,7 +11,7 @@ use crate::msg::ExecuteMsg;
 /// for working with cw4-group contracts.
 ///
 /// It extends Cw4Contract to add the extra calls from cw4-group.
-#[cw_serde]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct Cw4GroupContract(pub Cw4Contract);
 
 impl Deref for Cw4GroupContract {
