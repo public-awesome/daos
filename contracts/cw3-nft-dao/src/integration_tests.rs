@@ -585,11 +585,20 @@ mod tests {
             ],
         );
 
-        // non-Open proposals cannot be voted
-        let err = app
+        // Passed proposals can still be voted (while they are not expired or executed)
+        let res = app
             .execute_contract(Addr::unchecked(VOTER5), dao_addr.clone(), &yes_vote, &[])
-            .unwrap_err();
-        assert_eq!(ContractError::NotOpen {}, err.downcast().unwrap());
+            .unwrap();
+        // Verify
+        assert_eq!(
+            res.custom_attrs(1),
+            [
+                ("action", "vote"),
+                ("sender", VOTER5),
+                ("proposal_id", proposal_id.to_string().as_str()),
+                ("status", "Passed")
+            ]
+        );
 
         // query individual votes
         // initial (with 0 weight)
@@ -625,7 +634,7 @@ mod tests {
         );
 
         // non-voter
-        let voter = VOTER5.into();
+        let voter = SOMEBODY.into();
         let vote: VoteResponse = app
             .wrap()
             .query_wasm_smart(&dao_addr, &QueryMsg::Vote { proposal_id, voter })
@@ -652,7 +661,7 @@ mod tests {
 
         // Powerful voter opposes it, so it rejects
         let res = app
-            .execute_contract(Addr::unchecked(VOTER4), dao_addr, &no_vote, &[])
+            .execute_contract(Addr::unchecked(VOTER4), dao_addr.clone(), &no_vote, &[])
             .unwrap();
 
         assert_eq!(
@@ -660,6 +669,25 @@ mod tests {
             [
                 ("action", "vote"),
                 ("sender", VOTER4),
+                ("proposal_id", proposal_id.to_string().as_str()),
+                ("status", "Rejected"),
+            ],
+        );
+
+        // Rejected proposals can still be voted (while they are not expired)
+        let yes_vote = ExecuteMsg::Vote {
+            proposal_id,
+            vote: Vote::Yes,
+        };
+        let res = app
+            .execute_contract(Addr::unchecked(VOTER5), dao_addr, &yes_vote, &[])
+            .unwrap();
+
+        assert_eq!(
+            res.custom_attrs(1),
+            [
+                ("action", "vote"),
+                ("sender", VOTER5),
                 ("proposal_id", proposal_id.to_string().as_str()),
                 ("status", "Rejected"),
             ],
@@ -1162,45 +1190,82 @@ mod tests {
         // 3/12 votes
         assert_eq!(prop_status(&app), Status::Open);
 
-        // // a few blocks later...
-        // app.update_block(|block| block.height += 2);
+        // a few blocks later...
+        app.update_block(|block| block.height += 2);
 
-        // // admin changes the group (3 -> 0, 2 -> 9, 0 -> 29) - total = 56, require 29 to pass
-        // let newbie: &str = "newbie";
-        // let update_msg = cw4_group::msg::ExecuteMsg::UpdateMembers {
-        //     remove: vec![VOTER3.into()],
-        //     add: vec![member(VOTER2, 9), member(newbie, 29)],
-        // };
-        // app.execute_contract(Addr::unchecked(OWNER), group_addr, &update_msg, &[])
-        //     .unwrap();
+        let res: GroupResponse = app
+            .wrap()
+            .query_wasm_smart(dao_addr.clone(), &QueryMsg::Group {})
+            .unwrap();
 
-        // // a few blocks later...
-        // app.update_block(|block| block.height += 3);
+        // admin changes the group (3 -> 0, 2 -> 9, 0 -> 29) - total = 56, require 29 to pass
+        let newbie: &str = "newbie";
+        let update_msg = Cw4GroupContract(res.group)
+            .update_members(
+                vec![VOTER3.into()],
+                vec![member(VOTER2, 9), member(newbie, 29)],
+            )
+            .unwrap();
+        let update_proposal = ExecuteMsg::Propose {
+            title: "Change group".to_string(),
+            description: "Update membership".to_string(),
+            msgs: vec![update_msg],
+            latest: None,
+        };
+        let res = app
+            .execute_contract(
+                Addr::unchecked(VOTER1),
+                dao_addr.clone(),
+                &update_proposal,
+                &[],
+            )
+            .unwrap();
+        // Get the proposal id from the logs
+        let update_proposal_id: u64 = res.custom_attrs(1)[2].value.parse().unwrap();
 
-        // // VOTER2 votes according to original weights: 3 + 2 = 5 / 12 => Open
-        // // with updated weights, it would be 3 + 9 = 12 / 12 => Passed
-        // let yes_vote = ExecuteMsg::Vote {
-        //     proposal_id,
-        //     vote: Vote::Yes,
-        // };
-        // app.execute_contract(Addr::unchecked(VOTER2), dao_addr.clone(), &yes_vote, &[])
-        //     .unwrap();
-        // assert_eq!(prop_status(&app), Status::Open);
+        // next block...
+        app.update_block(|b| b.height += 1);
 
-        // // new proposal can be passed single-handedly by newbie
-        // let proposal = pay_somebody_proposal();
-        // let res = app
-        //     .execute_contract(Addr::unchecked(newbie), dao_addr.clone(), &proposal, &[])
-        //     .unwrap();
-        // // Get the proposal id from the logs
-        // let proposal_id2: u64 = res.custom_attrs(1)[2].value.parse().unwrap();
+        // Pass and execute first proposal
+        let yes_vote = ExecuteMsg::Vote {
+            proposal_id: update_proposal_id,
+            vote: Vote::Yes,
+        };
+        app.execute_contract(Addr::unchecked(VOTER4), dao_addr.clone(), &yes_vote, &[])
+            .unwrap();
+        let execution = ExecuteMsg::Execute {
+            proposal_id: update_proposal_id,
+        };
+        app.execute_contract(Addr::unchecked(VOTER4), dao_addr.clone(), &execution, &[])
+            .unwrap();
 
-        // // check proposal2 status
-        // let query_prop = QueryMsg::Proposal {
-        //     proposal_id: proposal_id2,
-        // };
-        // let prop: ProposalResponse = app.wrap().query_wasm_smart(&dao_addr, &query_prop).unwrap();
-        // assert_eq!(Status::Passed, prop.status);
+        // a few blocks later...
+        app.update_block(|block| block.height += 3);
+
+        // VOTER2 votes according to original weights: 3 + 2 = 5 / 12 => Open
+        // with updated weights, it would be 3 + 9 = 12 / 12 => Passed
+        let yes_vote = ExecuteMsg::Vote {
+            proposal_id,
+            vote: Vote::Yes,
+        };
+        app.execute_contract(Addr::unchecked(VOTER2), dao_addr.clone(), &yes_vote, &[])
+            .unwrap();
+        assert_eq!(prop_status(&app), Status::Open);
+
+        // new proposal can be passed single-handedly by newbie
+        let proposal = pay_somebody_proposal();
+        let res = app
+            .execute_contract(Addr::unchecked(newbie), dao_addr.clone(), &proposal, &[])
+            .unwrap();
+        // Get the proposal id from the logs
+        let proposal_id2: u64 = res.custom_attrs(1)[2].value.parse().unwrap();
+
+        // check proposal2 status
+        let query_prop = QueryMsg::Proposal {
+            proposal_id: proposal_id2,
+        };
+        let prop: ProposalResponse = app.wrap().query_wasm_smart(&dao_addr, &query_prop).unwrap();
+        assert_eq!(Status::Passed, prop.status);
     }
 
     // uses the power from the beginning of the voting period
@@ -1243,32 +1308,69 @@ mod tests {
         // a few blocks later...
         app.update_block(|block| block.height += 2);
 
-        // // admin changes the group (3 -> 0, 2 -> 9, 0 -> 28) - total = 55, require 28 to pass
-        // let newbie: &str = "newbie";
-        // let update_msg = cw4_group::msg::ExecuteMsg::UpdateMembers {
-        //     remove: vec![VOTER3.into()],
-        //     add: vec![member(VOTER2, 9), member(newbie, 29)],
-        // };
-        // app.execute_contract(Addr::unchecked(OWNER), group_addr, &update_msg, &[])
-        //     .unwrap();
+        let res: GroupResponse = app
+            .wrap()
+            .query_wasm_smart(dao_addr.clone(), &QueryMsg::Group {})
+            .unwrap();
 
-        // // a few blocks later...
-        // app.update_block(|block| block.height += 3);
+        // admin changes the group (3 -> 0, 2 -> 9, 0 -> 29) - total = 56, require 29 to pass
+        let newbie: &str = "newbie";
+        let update_msg = Cw4GroupContract(res.group)
+            .update_members(
+                vec![VOTER3.into()],
+                vec![member(VOTER2, 9), member(newbie, 29)],
+            )
+            .unwrap();
+        let update_proposal = ExecuteMsg::Propose {
+            title: "Change group".to_string(),
+            description: "Update membership".to_string(),
+            msgs: vec![update_msg],
+            latest: None,
+        };
+        let res = app
+            .execute_contract(
+                Addr::unchecked(VOTER1),
+                dao_addr.clone(),
+                &update_proposal,
+                &[],
+            )
+            .unwrap();
+        // Get the proposal id from the logs
+        let update_proposal_id: u64 = res.custom_attrs(1)[2].value.parse().unwrap();
 
-        // // VOTER2 votes yes, according to original weights: 3 yes, 2 no, 5 total (will fail when expired)
-        // // with updated weights, it would be 3 yes, 9 yes, 11 total (will pass when expired)
-        // let yes_vote = ExecuteMsg::Vote {
-        //     proposal_id,
-        //     vote: Vote::Yes,
-        // };
-        // app.execute_contract(Addr::unchecked(VOTER2), dao_addr.clone(), &yes_vote, &[])
-        //     .unwrap();
-        // // not expired yet
-        // assert_eq!(prop_status(&app), Status::Open);
+        // next block...
+        app.update_block(|b| b.height += 1);
 
-        // // wait until the vote is over, and see it was rejected
-        // app.update_block(expire(voting_period));
-        // assert_eq!(prop_status(&app), Status::Rejected);
+        // Pass and execute first proposal
+        let yes_vote = ExecuteMsg::Vote {
+            proposal_id: update_proposal_id,
+            vote: Vote::Yes,
+        };
+        app.execute_contract(Addr::unchecked(VOTER4), dao_addr.clone(), &yes_vote, &[])
+            .unwrap();
+        let execution = ExecuteMsg::Execute {
+            proposal_id: update_proposal_id,
+        };
+        app.execute_contract(Addr::unchecked(VOTER4), dao_addr.clone(), &execution, &[])
+            .unwrap();
+
+        // a few blocks later...
+        app.update_block(|block| block.height += 3);
+
+        // VOTER2 votes yes, according to original weights: 3 yes, 2 no, 5 total (will fail when expired)
+        // with updated weights, it would be 3 yes, 9 yes, 11 total (will pass when expired)
+        let yes_vote = ExecuteMsg::Vote {
+            proposal_id,
+            vote: Vote::Yes,
+        };
+        app.execute_contract(Addr::unchecked(VOTER2), dao_addr.clone(), &yes_vote, &[])
+            .unwrap();
+        // not expired yet
+        assert_eq!(prop_status(&app), Status::Open);
+
+        // wait until the vote is over, and see it was rejected
+        app.update_block(expire(voting_period));
+        assert_eq!(prop_status(&app), Status::Rejected);
     }
 
     #[test]
