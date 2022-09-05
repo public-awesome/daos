@@ -1,23 +1,21 @@
+use std::cmp::Ordering;
+
 #[cfg(not(feature = "library"))]
 use cosmwasm_std::entry_point;
 use cosmwasm_std::{
-    to_binary, Binary, BlockInfo, Deps, DepsMut, Env, MessageInfo, Order, Reply, Response,
-    StdResult, SubMsg, WasmMsg,
+    to_binary, Binary, BlockInfo, CosmosMsg, Deps, DepsMut, Empty, Env, MessageInfo, Order, Reply,
+    Response, StdResult, SubMsg, WasmMsg,
 };
 use cw2::set_contract_version;
 use cw3::{
-    ProposalListResponse, ProposalResponse, VoteInfo, VoteListResponse, VoteResponse, VoterDetail,
-    VoterListResponse, VoterResponse,
+    ProposalListResponse, ProposalResponse, Status, Vote, VoteInfo, VoteListResponse, VoteResponse,
+    VoterDetail, VoterListResponse, VoterResponse,
 };
-use cw3_fixed_multisig::state::{Proposal, BALLOTS, PROPOSALS};
-use cw3_flex_multisig::contract::{
-    execute_close, execute_execute, execute_membership_hook, execute_propose, execute_vote,
-};
-use cw3_flex_multisig::ContractError as Cw3FlexMultisigError;
-use cw4::{Cw4Contract, MemberChangedHookMsg};
+use cw3_fixed_multisig::state::{next_id, Ballot, Proposal, Votes, BALLOTS, PROPOSALS};
+use cw4::{Cw4Contract, MemberChangedHookMsg, MemberDiff};
 use cw4_group::msg::InstantiateMsg as Cw4GroupInstantiateMsg;
 use cw_storage_plus::Bound;
-use cw_utils::{maybe_addr, parse_reply_instantiate_data, ThresholdResponse};
+use cw_utils::{maybe_addr, parse_reply_instantiate_data, Expiration, ThresholdResponse};
 
 use crate::error::ContractError;
 use crate::msg::{ExecuteMsg, GroupResponse, InstantiateMsg, QueryMsg};
@@ -97,6 +95,194 @@ pub fn execute(
     }
 }
 
+pub fn execute_propose(
+    deps: DepsMut,
+    env: Env,
+    info: MessageInfo,
+    title: String,
+    description: String,
+    msgs: Vec<CosmosMsg>,
+    // we ignore earliest
+    latest: Option<Expiration>,
+) -> Result<Response<Empty>, ContractError> {
+    // only members of the multisig can create a proposal
+    let cfg = CONFIG.load(deps.storage)?;
+    let group = GROUP.load(deps.storage)?;
+
+    // Only members of the multisig can create a proposal
+    // Non-voting members are special - they are allowed to create a proposal and
+    // therefore "vote", but they aren't allowed to vote otherwise.
+    // Such vote is also special, because despite having 0 weight it still counts when
+    // counting threshold passing
+    let vote_power = group
+        .is_member(&deps.querier, &info.sender, None)?
+        .ok_or(ContractError::Unauthorized {})?;
+
+    // max expires also used as default
+    let max_expires = cfg.max_voting_period.after(&env.block);
+    let mut expires = latest.unwrap_or(max_expires);
+    let comp = expires.partial_cmp(&max_expires);
+    if let Some(Ordering::Greater) = comp {
+        expires = max_expires;
+    } else if comp.is_none() {
+        return Err(ContractError::WrongExpiration {});
+    }
+
+    // create a proposal
+    let mut prop = Proposal {
+        title,
+        description,
+        start_height: env.block.height,
+        expires,
+        msgs,
+        status: Status::Open,
+        votes: Votes::yes(vote_power),
+        threshold: cfg.threshold,
+        total_weight: group.total_weight(&deps.querier)?,
+    };
+    prop.update_status(&env.block);
+    let id = next_id(deps.storage)?;
+    PROPOSALS.save(deps.storage, id, &prop)?;
+
+    // add the first yes vote from voter
+    let ballot = Ballot {
+        weight: vote_power,
+        vote: Vote::Yes,
+    };
+    BALLOTS.save(deps.storage, (id, &info.sender), &ballot)?;
+
+    Ok(Response::new()
+        .add_attribute("action", "propose")
+        .add_attribute("sender", info.sender)
+        .add_attribute("proposal_id", id.to_string())
+        .add_attribute("status", format!("{:?}", prop.status)))
+}
+
+pub fn execute_vote(
+    deps: DepsMut,
+    env: Env,
+    info: MessageInfo,
+    proposal_id: u64,
+    vote: Vote,
+) -> Result<Response<Empty>, ContractError> {
+    // only members of the multisig can vote
+    let group = GROUP.load(deps.storage)?;
+
+    // ensure proposal exists and can be voted on
+    let mut prop = PROPOSALS.load(deps.storage, proposal_id)?;
+    // Allow voting on Passed and Rejected proposals too,
+    if ![Status::Open, Status::Passed, Status::Rejected].contains(&prop.status) {
+        return Err(ContractError::NotOpen {});
+    }
+    // if they are not expired
+    if prop.expires.is_expired(&env.block) {
+        return Err(ContractError::Expired {});
+    }
+
+    // Only voting members of the multisig can vote
+    // Additional check if weight >= 1
+    // use a snapshot of "start of proposal"
+    let vote_power = group
+        .is_voting_member(&deps.querier, &info.sender, prop.start_height)?
+        .ok_or(ContractError::Unauthorized {})?;
+
+    // cast vote if no vote previously cast
+    BALLOTS.update(deps.storage, (proposal_id, &info.sender), |bal| match bal {
+        Some(_) => Err(ContractError::AlreadyVoted {}),
+        None => Ok(Ballot {
+            weight: vote_power,
+            vote,
+        }),
+    })?;
+
+    // update vote tally
+    prop.votes.add_vote(vote, vote_power);
+    prop.update_status(&env.block);
+    PROPOSALS.save(deps.storage, proposal_id, &prop)?;
+
+    Ok(Response::new()
+        .add_attribute("action", "vote")
+        .add_attribute("sender", info.sender)
+        .add_attribute("proposal_id", proposal_id.to_string())
+        .add_attribute("status", format!("{:?}", prop.status)))
+}
+
+pub fn execute_execute(
+    deps: DepsMut,
+    env: Env,
+    info: MessageInfo,
+    proposal_id: u64,
+) -> Result<Response, ContractError> {
+    let mut prop = PROPOSALS.load(deps.storage, proposal_id)?;
+    // we allow execution even after the proposal "expiration" as long as all vote come in before
+    // that point. If it was approved on time, it can be executed any time.
+    prop.update_status(&env.block);
+    if prop.status != Status::Passed {
+        return Err(ContractError::WrongExecuteStatus {});
+    }
+
+    let cfg = CONFIG.load(deps.storage)?;
+    cfg.authorize(deps.storage, &deps.querier, &info.sender)?;
+
+    // set it to executed
+    prop.status = Status::Executed;
+    PROPOSALS.save(deps.storage, proposal_id, &prop)?;
+
+    // dispatch all proposed messages
+    Ok(Response::new()
+        .add_messages(prop.msgs)
+        .add_attribute("action", "execute")
+        .add_attribute("sender", info.sender)
+        .add_attribute("proposal_id", proposal_id.to_string()))
+}
+
+pub fn execute_close(
+    deps: DepsMut,
+    env: Env,
+    info: MessageInfo,
+    proposal_id: u64,
+) -> Result<Response<Empty>, ContractError> {
+    // anyone can trigger this if the vote passed
+
+    let mut prop = PROPOSALS.load(deps.storage, proposal_id)?;
+    if [Status::Executed, Status::Rejected, Status::Passed].contains(&prop.status) {
+        return Err(ContractError::WrongCloseStatus {});
+    }
+    // Avoid closing of Passed due to expiration proposals
+    if prop.current_status(&env.block) == Status::Passed {
+        return Err(ContractError::WrongCloseStatus {});
+    }
+    if !prop.expires.is_expired(&env.block) {
+        return Err(ContractError::NotExpired {});
+    }
+
+    // set it to failed
+    prop.status = Status::Rejected;
+    PROPOSALS.save(deps.storage, proposal_id, &prop)?;
+
+    Ok(Response::new()
+        .add_attribute("action", "close")
+        .add_attribute("sender", info.sender)
+        .add_attribute("proposal_id", proposal_id.to_string()))
+}
+
+// TODO: how does this work now? get rid of this?
+pub fn execute_membership_hook(
+    deps: DepsMut,
+    _env: Env,
+    info: MessageInfo,
+    _diffs: Vec<MemberDiff>,
+) -> Result<Response<Empty>, ContractError> {
+    // This is now a no-op
+    // But we leave the authorization check as a demo
+    let group = GROUP.load(deps.storage)?;
+    if info.sender != group.0 {
+        return Err(ContractError::Unauthorized {});
+    }
+
+    Ok(Response::default())
+}
+
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn reply(deps: DepsMut, _env: Env, msg: Reply) -> Result<Response, ContractError> {
     if msg.id != INIT_GROUP_REPLY_ID {
@@ -108,7 +294,7 @@ pub fn reply(deps: DepsMut, _env: Env, msg: Reply) -> Result<Response, ContractE
         Ok(res) => {
             let group_addr =
                 Cw4Contract(deps.api.addr_validate(&res.contract_address).map_err(|_| {
-                    Cw3FlexMultisigError::InvalidGroup {
+                    ContractError::InvalidGroup {
                         addr: res.contract_address.clone(),
                     }
                 })?);

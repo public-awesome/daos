@@ -14,7 +14,6 @@ mod tests {
         ProposalListResponse, ProposalResponse, Status, Vote, VoteInfo, VoteListResponse,
         VoteResponse, VoterDetail, VoterListResponse,
     };
-    use cw3_flex_multisig::error::ContractError as Cw3FlexMultisigError;
     use cw3_flex_multisig::state::Executor as Cw3Executor;
     use cw4::{Member, MemberChangedHookMsg, MemberDiff};
     use cw4_group::helpers::Cw4GroupContract;
@@ -295,10 +294,7 @@ mod tests {
         let err = app
             .execute_contract(Addr::unchecked(SOMEBODY), dao_addr.clone(), &proposal, &[])
             .unwrap_err();
-        assert_eq!(
-            ContractError::Cw3FlexMultisig(Cw3FlexMultisigError::Unauthorized {}),
-            err.downcast().unwrap()
-        );
+        assert_eq!(ContractError::Unauthorized {}, err.downcast().unwrap());
 
         // Wrong expiration option fails
         let msgs = match proposal.clone() {
@@ -319,10 +315,7 @@ mod tests {
                 &[],
             )
             .unwrap_err();
-        assert_eq!(
-            ContractError::Cw3FlexMultisig(Cw3FlexMultisigError::WrongExpiration {}),
-            err.downcast().unwrap()
-        );
+        assert_eq!(ContractError::WrongExpiration {}, err.downcast().unwrap());
 
         // Proposal from voter works
         let res = app
@@ -511,19 +504,13 @@ mod tests {
         let err = app
             .execute_contract(Addr::unchecked(OWNER), dao_addr.clone(), &yes_vote, &[])
             .unwrap_err();
-        assert_eq!(
-            ContractError::Cw3FlexMultisig(Cw3FlexMultisigError::Unauthorized {}),
-            err.downcast().unwrap()
-        );
+        assert_eq!(ContractError::Unauthorized {}, err.downcast().unwrap());
 
         // Only voters can vote
         let err = app
             .execute_contract(Addr::unchecked(SOMEBODY), dao_addr.clone(), &yes_vote, &[])
             .unwrap_err();
-        assert_eq!(
-            ContractError::Cw3FlexMultisig(Cw3FlexMultisigError::Unauthorized {}),
-            err.downcast().unwrap()
-        );
+        assert_eq!(ContractError::Unauthorized {}, err.downcast().unwrap());
 
         // But voter1 can
         let res = app
@@ -543,10 +530,7 @@ mod tests {
         let err = app
             .execute_contract(Addr::unchecked(VOTER1), dao_addr.clone(), &yes_vote, &[])
             .unwrap_err();
-        assert_eq!(
-            ContractError::Cw3FlexMultisig(Cw3FlexMultisigError::AlreadyVoted {}),
-            err.downcast().unwrap()
-        );
+        assert_eq!(ContractError::AlreadyVoted {}, err.downcast().unwrap());
 
         // No/Veto votes have no effect on the tally
         // Compute the current tally
@@ -577,20 +561,14 @@ mod tests {
         let err = app
             .execute_contract(Addr::unchecked(VOTER3), dao_addr.clone(), &yes_vote, &[])
             .unwrap_err();
-        assert_eq!(
-            ContractError::Cw3FlexMultisig(Cw3FlexMultisigError::AlreadyVoted {}),
-            err.downcast().unwrap()
-        );
+        assert_eq!(ContractError::AlreadyVoted {}, err.downcast().unwrap());
 
         // Expired proposals cannot be voted
         app.update_block(expire(voting_period));
         let err = app
             .execute_contract(Addr::unchecked(VOTER4), dao_addr.clone(), &yes_vote, &[])
             .unwrap_err();
-        assert_eq!(
-            ContractError::Cw3FlexMultisig(Cw3FlexMultisigError::Expired {}),
-            err.downcast().unwrap()
-        );
+        assert_eq!(ContractError::Expired {}, err.downcast().unwrap());
         app.update_block(unexpire(voting_period));
 
         // Powerful voter supports it, so it passes
@@ -611,10 +589,7 @@ mod tests {
         let err = app
             .execute_contract(Addr::unchecked(VOTER5), dao_addr.clone(), &yes_vote, &[])
             .unwrap_err();
-        assert_eq!(
-            ContractError::Cw3FlexMultisig(Cw3FlexMultisigError::NotOpen {}),
-            err.downcast().unwrap()
-        );
+        assert_eq!(ContractError::NotOpen {}, err.downcast().unwrap());
 
         // query individual votes
         // initial (with 0 weight)
@@ -722,7 +697,7 @@ mod tests {
             .execute_contract(Addr::unchecked(OWNER), dao_addr.clone(), &execution, &[])
             .unwrap_err();
         assert_eq!(
-            ContractError::Cw3FlexMultisig(Cw3FlexMultisigError::WrongExecuteStatus {}),
+            ContractError::WrongExecuteStatus {},
             err.downcast().unwrap()
         );
 
@@ -749,10 +724,7 @@ mod tests {
         let err = app
             .execute_contract(Addr::unchecked(OWNER), dao_addr.clone(), &closing, &[])
             .unwrap_err();
-        assert_eq!(
-            ContractError::Cw3FlexMultisig(Cw3FlexMultisigError::WrongCloseStatus {}),
-            err.downcast().unwrap()
-        );
+        assert_eq!(ContractError::WrongCloseStatus {}, err.downcast().unwrap());
 
         // Execute works. Anybody can execute Passed proposals
         let res = app
@@ -777,17 +749,14 @@ mod tests {
         let err = app
             .execute_contract(Addr::unchecked(OWNER), dao_addr.clone(), &closing, &[])
             .unwrap_err();
-        assert_eq!(
-            ContractError::Cw3FlexMultisig(Cw3FlexMultisigError::WrongCloseStatus {}),
-            err.downcast().unwrap()
-        );
+        assert_eq!(ContractError::WrongCloseStatus {}, err.downcast().unwrap());
 
         // Trying to execute something that was already executed fails
         let err = app
             .execute_contract(Addr::unchecked(SOMEBODY), dao_addr, &execution, &[])
             .unwrap_err();
         assert_eq!(
-            ContractError::Cw3FlexMultisig(Cw3FlexMultisigError::WrongExecuteStatus {}),
+            ContractError::WrongExecuteStatus {},
             err.downcast().unwrap()
         );
     }
@@ -836,10 +805,7 @@ mod tests {
                 &[],
             )
             .unwrap_err();
-        assert_eq!(
-            ContractError::Cw3FlexMultisig(Cw3FlexMultisigError::Unauthorized {}),
-            err.downcast().unwrap()
-        );
+        assert_eq!(ContractError::Unauthorized {}, err.downcast().unwrap());
 
         app.execute_contract(
             Addr::unchecked(Addr::unchecked(VOTER2)), // member of voting group is allowed to execute
@@ -894,10 +860,7 @@ mod tests {
                 &[],
             )
             .unwrap_err();
-        assert_eq!(
-            ContractError::Cw3FlexMultisig(Cw3FlexMultisigError::Unauthorized {}),
-            err.downcast().unwrap()
-        );
+        assert_eq!(ContractError::Unauthorized {}, err.downcast().unwrap());
 
         let err = app
             .execute_contract(
@@ -907,10 +870,7 @@ mod tests {
                 &[],
             )
             .unwrap_err();
-        assert_eq!(
-            ContractError::Cw3FlexMultisig(Cw3FlexMultisigError::Unauthorized {}),
-            err.downcast().unwrap()
-        );
+        assert_eq!(ContractError::Unauthorized {}, err.downcast().unwrap());
 
         app.execute_contract(
             Addr::unchecked(Addr::unchecked(VOTER3)), // VOTER3 is allowed to execute
@@ -1028,10 +988,7 @@ mod tests {
         let err = app
             .execute_contract(Addr::unchecked(SOMEBODY), dao_addr.clone(), &closing, &[])
             .unwrap_err();
-        assert_eq!(
-            ContractError::Cw3FlexMultisig(Cw3FlexMultisigError::NotExpired {}),
-            err.downcast().unwrap()
-        );
+        assert_eq!(ContractError::NotExpired {}, err.downcast().unwrap());
 
         // Expired proposals can be closed
         app.update_block(expire(voting_period));
@@ -1052,10 +1009,7 @@ mod tests {
         let err = app
             .execute_contract(Addr::unchecked(SOMEBODY), dao_addr, &closing, &[])
             .unwrap_err();
-        assert_eq!(
-            ContractError::Cw3FlexMultisig(Cw3FlexMultisigError::WrongCloseStatus {}),
-            err.downcast().unwrap()
-        );
+        assert_eq!(ContractError::WrongCloseStatus {}, err.downcast().unwrap());
     }
 
     // uses the power from the beginning of the voting period
@@ -1165,10 +1119,7 @@ mod tests {
                 &[],
             )
             .unwrap_err();
-        assert_eq!(
-            ContractError::Cw3FlexMultisig(Cw3FlexMultisigError::Unauthorized {}),
-            err.downcast().unwrap()
-        );
+        assert_eq!(ContractError::Unauthorized {}, err.downcast().unwrap());
 
         // extra: ensure no one else can call the hook
         let hook_hack = ExecuteMsg::MemberChangedHook(MemberChangedHookMsg {
@@ -1177,10 +1128,7 @@ mod tests {
         let err = app
             .execute_contract(Addr::unchecked(VOTER2), dao_addr.clone(), &hook_hack, &[])
             .unwrap_err();
-        assert_eq!(
-            ContractError::Cw3FlexMultisig(Cw3FlexMultisigError::Unauthorized {}),
-            err.downcast().unwrap()
-        );
+        assert_eq!(ContractError::Unauthorized {}, err.downcast().unwrap());
     }
 
     // uses the power from the beginning of the voting period
@@ -1544,7 +1492,7 @@ mod tests {
             .execute_contract(Addr::unchecked(OWNER), dao_addr.clone(), &execution, &[])
             .unwrap_err();
         assert_eq!(
-            ContractError::Cw3FlexMultisig(Cw3FlexMultisigError::WrongExecuteStatus {}),
+            ContractError::WrongExecuteStatus {},
             err.downcast().unwrap()
         );
 
@@ -1571,10 +1519,7 @@ mod tests {
         let err = app
             .execute_contract(Addr::unchecked(OWNER), dao_addr.clone(), &closing, &[])
             .unwrap_err();
-        assert_eq!(
-            ContractError::Cw3FlexMultisig(Cw3FlexMultisigError::WrongCloseStatus {}),
-            err.downcast().unwrap()
-        );
+        assert_eq!(ContractError::WrongCloseStatus {}, err.downcast().unwrap());
 
         // Execute works. Anybody can execute Passed proposals
         let res = app
@@ -1606,17 +1551,14 @@ mod tests {
         let err = app
             .execute_contract(Addr::unchecked(OWNER), dao_addr.clone(), &closing, &[])
             .unwrap_err();
-        assert_eq!(
-            ContractError::Cw3FlexMultisig(Cw3FlexMultisigError::WrongCloseStatus {}),
-            err.downcast().unwrap()
-        );
+        assert_eq!(ContractError::WrongCloseStatus {}, err.downcast().unwrap());
 
         // Trying to execute something that was already executed fails
         let err = app
             .execute_contract(Addr::unchecked(SOMEBODY), dao_addr, &execution, &[])
             .unwrap_err();
         assert_eq!(
-            ContractError::Cw3FlexMultisig(Cw3FlexMultisigError::WrongExecuteStatus {}),
+            ContractError::WrongExecuteStatus {},
             err.downcast().unwrap()
         );
     }
