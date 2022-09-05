@@ -1,7 +1,10 @@
 [package]
-name = "cw3-nft-dao"
+name = "sg-dao"
 version = "0.1.0"
-authors = ["Shane Vitarana <s@noreply.publicawesome.com>"]
+authors = [
+  "Ethan Frey <ethanfrey@users.noreply.github.com>",
+  "Shane Vitarana <s@noreply.publicawesome.com>",
+]
 edition = "2021"
 
 exclude = [
@@ -9,8 +12,6 @@ exclude = [
   "contract.wasm",
   "hash.txt",
 ]
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [lib]
 crate-type = ["cdylib", "rlib"]

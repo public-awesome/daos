@@ -9,24 +9,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a26fa4d7e3f2eebadf743988fc8aec9fa9a9e82611acafd77c1462ed6262440a"
 
 [[package]]
-name = "base-factory"
-version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8304195e73310961ad49490d0e4387734a2d85a69e24220bb55440bc656bbbed"
-dependencies = [
- "cosmwasm-std",
- "cw-storage-plus 0.13.4",
- "cw-utils 0.13.4",
- "cw2 0.13.4",
- "schemars",
- "serde",
- "sg-std 0.14.0",
- "sg1",
- "sg2",
- "thiserror",
-]
-
-[[package]]
 name = "base16ct"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -202,25 +184,6 @@ dependencies = [
 
 [[package]]
 name = "cw-multi-test"
-version = "0.13.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a3f9a8ab7c3c29ec93cb7a39ce4b14a05e053153b4a17ef7cf2246af1b7c087e"
-dependencies = [
- "anyhow",
- "cosmwasm-std",
- "cosmwasm-storage",
- "cw-storage-plus 0.13.4",
- "cw-utils 0.13.4",
- "derivative",
- "itertools",
- "prost",
- "schemars",
- "serde",
- "thiserror",
-]
-
-[[package]]
-name = "cw-multi-test"
 version = "0.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ca153120cf5b91af88be106b0c6c0263423d959bc813b1592982c02c4691a4ae"
@@ -357,29 +320,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "cw3-nft-dao"
-version = "0.1.0"
-dependencies = [
- "cosmwasm-schema",
- "cosmwasm-std",
- "cosmwasm-storage",
- "cw-multi-test 0.14.0",
- "cw-storage-plus 0.14.0",
- "cw-utils 0.14.0",
- "cw2 0.14.0",
- "cw3",
- "cw3-fixed-multisig",
- "cw3-flex-multisig",
- "cw4",
- "cw4-group",
- "cw721 0.13.4 (registry+https://github.com/rust-lang/crates.io-index)",
- "cw721-base 0.13.4 (git+https://github.com/CosmWasm/cw-nfts)",
- "schemars",
- "serde",
- "thiserror",
-]
-
-[[package]]
 name = "cw4"
 version = "0.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -434,22 +374,6 @@ dependencies = [
 [[package]]
 name = "cw721-base"
 version = "0.13.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "423d4efe8b649d228d1533e141c238415f49aa8a9ee4e40fce192d7a93ffd057"
-dependencies = [
- "cosmwasm-std",
- "cw-storage-plus 0.13.4",
- "cw-utils 0.13.4",
- "cw2 0.13.4",
- "cw721 0.13.4 (registry+https://github.com/rust-lang/crates.io-index)",
- "schemars",
- "serde",
- "thiserror",
-]
-
-[[package]]
-name = "cw721-base"
-version = "0.13.4"
 source = "git+https://github.com/CosmWasm/cw-nfts#072bc8c22283b81d1bb037c251a4eebe15631735"
 dependencies = [
  "cosmwasm-std",
@@ -460,34 +384,6 @@ dependencies = [
  "schemars",
  "serde",
  "thiserror",
-]
-
-[[package]]
-name = "dao-minter"
-version = "0.14.1"
-dependencies = [
- "base-factory",
- "cosmwasm-schema",
- "cosmwasm-std",
- "cw-multi-test 0.13.4",
- "cw-storage-plus 0.13.4",
- "cw-utils 0.14.0",
- "cw2 0.13.4",
- "cw3-flex-multisig",
- "cw4",
- "cw721 0.13.4 (registry+https://github.com/rust-lang/crates.io-index)",
- "cw721-base 0.13.4 (registry+https://github.com/rust-lang/crates.io-index)",
- "schemars",
- "serde",
- "sg-multi-test",
- "sg-std 0.14.0",
- "sg1",
- "sg2",
- "sg4",
- "sg721",
- "sg721-nt",
- "thiserror",
- "url",
 ]
 
 [[package]]
@@ -587,16 +483,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "form_urlencoded"
-version = "1.0.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5fc25a87fa4fd2094bffb06925852034d90a17f0d1e05197d4956d3555752191"
-dependencies = [
- "matches",
- "percent-encoding",
-]
-
-[[package]]
 name = "forward_ref"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -662,17 +548,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "idna"
-version = "0.2.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "418a0a6fab821475f634efe3ccc45c013f742efe03d853e8d3355d5cb850ecf8"
-dependencies = [
- "matches",
- "unicode-bidi",
- "unicode-normalization",
-]
-
-[[package]]
 name = "itertools"
 version = "0.10.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -707,22 +582,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8371e4e5341c3a96db127eb2465ac681ced4c433e01dd0e938adbef26ba93ba5"
 
 [[package]]
-name = "matches"
-version = "0.1.9"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a3e378b66a060d48947b590737b30a1be76706c8dd7b8ba0f2fe3989c68a853f"
-
-[[package]]
 name = "opaque-debug"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "624a8340c38c1b80fd549087862da4ba43e08858af025b236e509b6649fc13d5"
-
-[[package]]
-name = "percent-encoding"
-version = "2.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d4fd5641d01c8f18a23da7b6fe29298ff4b55afcccdf78973b24cf3175fee32e"
 
 [[package]]
 name = "pkcs8"
@@ -906,144 +769,26 @@ dependencies = [
 ]
 
 [[package]]
-name = "sg-multi-test"
-version = "0.15.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "13db39357dc21338185c8c2ef2e4536127d7ebca30fcb44026eb5d59f83c1ffd"
-dependencies = [
- "anyhow",
- "cosmwasm-std",
- "cw-multi-test 0.13.4",
- "schemars",
- "serde",
- "sg-std 0.14.0",
-]
-
-[[package]]
-name = "sg-std"
-version = "0.13.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "436f83aaa18cbdf901bc39b76e27f784a92935eb3cf63a819a1202d1241c519b"
-dependencies = [
- "cosmwasm-std",
- "cw-utils 0.13.4",
- "cw721 0.13.4 (registry+https://github.com/rust-lang/crates.io-index)",
- "cw721-base 0.13.4 (registry+https://github.com/rust-lang/crates.io-index)",
- "schemars",
- "serde",
- "thiserror",
-]
-
-[[package]]
-name = "sg-std"
-version = "0.14.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a02682bc950eb5511b7166ee943424801caa3f160ebc6f62743b54cffbbea581"
-dependencies = [
- "cosmwasm-std",
- "cw-utils 0.13.4",
- "cw721 0.13.4 (registry+https://github.com/rust-lang/crates.io-index)",
- "cw721-base 0.13.4 (registry+https://github.com/rust-lang/crates.io-index)",
- "schemars",
- "serde",
- "thiserror",
-]
-
-[[package]]
-name = "sg1"
-version = "0.14.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c38c43f055f8807ffce245f067684a65f841d7117bdda862f257291fb29ec4c1"
-dependencies = [
- "cosmwasm-std",
- "cw-utils 0.13.4",
- "serde",
- "sg-std 0.14.0",
- "thiserror",
-]
-
-[[package]]
-name = "sg2"
+name = "sg-dao"
 version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "14590c7b2403661c19b91f33f665417575ed1b699ab2efe2a70a2bc5c0a84b39"
 dependencies = [
- "cosmwasm-std",
- "cw-utils 0.13.4",
- "schemars",
- "serde",
- "sg-std 0.13.0",
- "sg721",
- "thiserror",
-]
-
-[[package]]
-name = "sg4"
-version = "0.12.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "738decc5fac73dfd6328b89658c2c54751f628cbf34cc8ba4ee946690c87c65a"
-dependencies = [
- "cosmwasm-std",
- "schemars",
- "serde",
- "thiserror",
-]
-
-[[package]]
-name = "sg721"
-version = "0.14.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6150f495075d5745ffc0c770f4b42f666a5b14037186b676e5b211a4c478f2eb"
-dependencies = [
+ "cosmwasm-schema",
  "cosmwasm-std",
  "cosmwasm-storage",
- "cw-storage-plus 0.13.4",
- "cw-utils 0.13.4",
- "cw2 0.13.4",
- "schemars",
- "serde",
- "thiserror",
-]
-
-[[package]]
-name = "sg721-base"
-version = "0.13.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bde3f1aa1f05f56626d3f6a2f6bfaed3644576a0b50e2d3150b5f42f8d8351c2"
-dependencies = [
- "cosmwasm-std",
- "cw-storage-plus 0.13.4",
- "cw-utils 0.13.4",
- "cw2 0.13.4",
+ "cw-multi-test",
+ "cw-storage-plus 0.14.0",
+ "cw-utils 0.14.0",
+ "cw2 0.14.0",
+ "cw3",
+ "cw3-fixed-multisig",
+ "cw3-flex-multisig",
+ "cw4",
+ "cw4-group",
  "cw721 0.13.4 (registry+https://github.com/rust-lang/crates.io-index)",
- "cw721-base 0.13.4 (registry+https://github.com/rust-lang/crates.io-index)",
+ "cw721-base",
  "schemars",
  "serde",
- "sg-std 0.14.0",
- "sg721",
  "thiserror",
- "url",
-]
-
-[[package]]
-name = "sg721-nt"
-version = "0.13.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0364649bbe9653b3cad8c2f594a8549541ab48d19d6664c985dafc88a19c70ef"
-dependencies = [
- "cosmwasm-std",
- "cw-storage-plus 0.13.4",
- "cw-utils 0.13.4",
- "cw2 0.13.4",
- "cw721 0.13.4 (registry+https://github.com/rust-lang/crates.io-index)",
- "cw721-base 0.13.4 (registry+https://github.com/rust-lang/crates.io-index)",
- "schemars",
- "serde",
- "sg-std 0.14.0",
- "sg721",
- "sg721-base",
- "thiserror",
- "url",
 ]
 
 [[package]]
@@ -1123,21 +868,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "tinyvec"
-version = "1.6.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "87cc5ceb3875bb20c2890005a4e226a4651264a5c75edb2421b52861a0a0cb50"
-dependencies = [
- "tinyvec_macros",
-]
-
-[[package]]
-name = "tinyvec_macros"
-version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cda74da7e1a664f795bb1f8a87ec406fb89a02522cf6e50620d016add6dbbf5c"
-
-[[package]]
 name = "typenum"
 version = "1.15.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1156,37 +886,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "unicode-bidi"
-version = "0.3.8"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "099b7128301d285f79ddd55b9a83d5e6b9e97c92e0ea0daebee7263e932de992"
-
-[[package]]
 name = "unicode-ident"
 version = "1.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c4f5b37a154999a8f3f98cc23a628d850e154479cd94decf3414696e12e31aaf"
-
-[[package]]
-name = "unicode-normalization"
-version = "0.1.21"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "854cbdc4f7bc6ae19c820d44abdc3277ac3e1b2b93db20a636825d9322fb60e6"
-dependencies = [
- "tinyvec",
-]
-
-[[package]]
-name = "url"
-version = "2.2.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a507c383b2d33b5fc35d1861e77e6b383d158b2da5e14fe51b83dfedf6fd578c"
-dependencies = [
- "form_urlencoded",
- "idna",
- "matches",
- "percent-encoding",
-]
 
 [[package]]
 name = "version_check"
