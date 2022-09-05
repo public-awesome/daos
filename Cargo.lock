@@ -802,6 +802,8 @@ dependencies = [
  "cw-utils 0.14.0",
  "cw2 0.14.0",
  "cw4",
+ "cw721 0.13.4 (registry+https://github.com/rust-lang/crates.io-index)",
+ "cw721-base",
  "schemars",
  "serde",
  "thiserror",

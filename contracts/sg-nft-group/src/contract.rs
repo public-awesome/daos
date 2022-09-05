@@ -9,12 +9,14 @@ use cw4::{
     Member, MemberChangedHookMsg, MemberDiff, MemberListResponse, MemberResponse,
     TotalWeightResponse,
 };
+use cw721::{Cw721QueryMsg, TokensResponse};
+use cw721_base::helpers::Cw721Contract;
 use cw_storage_plus::Bound;
 use cw_utils::maybe_addr;
 
 use crate::error::ContractError;
 use crate::msg::{ExecuteMsg, InstantiateMsg, QueryMsg};
-use crate::state::{ADMIN, HOOKS, MEMBERS, TOTAL};
+use crate::state::{Config, ADMIN, CONFIG, HOOKS, MEMBERS, TOTAL};
 
 // version info for migration info
 const CONTRACT_NAME: &str = "crates.io:cw4-group";
@@ -30,7 +32,7 @@ pub fn instantiate(
     msg: InstantiateMsg,
 ) -> Result<Response, ContractError> {
     set_contract_version(deps.storage, CONTRACT_NAME, CONTRACT_VERSION)?;
-    create(deps, msg.admin, msg.members, env.block.height)?;
+    create(deps, msg.admin, msg.collection_addr, env.block.height)?;
     Ok(Response::default())
 }
 
@@ -39,7 +41,7 @@ pub fn instantiate(
 pub fn create(
     mut deps: DepsMut,
     admin: Option<String>,
-    members: Vec<Member>,
+    collection_addr: String,
     height: u64,
 ) -> Result<(), ContractError> {
     let admin_addr = admin
@@ -47,7 +49,61 @@ pub fn create(
         .transpose()?;
     ADMIN.set(deps.branch(), admin_addr)?;
 
+    CONFIG.save(
+        deps.storage,
+        &Config {
+            collection: deps.api.addr_validate(&collection_addr)?,
+        },
+    )?;
+
     let mut total = 0u64;
+
+    // fetch all owners from the collection
+    let all_tokens_msg = Cw721QueryMsg::AllTokens {
+        start_after: None,
+        limit: None,
+    };
+    let res: TokensResponse = deps
+        .querier
+        .query_wasm_smart(collection_addr, &all_tokens_msg)?;
+
+    // TODO: check how much gas this takes for 10,000 tokens
+    // create a member for each owner
+    // let members = res.tokens.into_iter().map(|token| {
+    //     let owner = deps
+    //         .querier
+    //         .query_wasm_smart(
+    //             collection_addr.clone(),
+    //             &Cw721QueryMsg::OwnerOf {
+    //                 token_id: token.clone(),
+    //                 include_expired: None,
+    //             },
+    //         )
+    //         .unwrap();
+    //     let member = Member {
+    //         addr: owner,
+    //         weight: 1,
+    //     };
+    //     total += 1;
+    //     (token, member)
+    // });
+    for token in res.tokens {
+        let owner = deps.querier.query_wasm_smart(
+            collection_addr,
+            &Cw721QueryMsg::OwnerOf {
+                token_id: token.clone(),
+                include_expired: None,
+            },
+        )?;
+        let member = Member {
+            addr: owner,
+            weight: 1,
+        };
+        // TODO: use MEMBERS.update..
+        // MEMBERS.save(deps.storage, token.as_bytes(), &member)?;
+        total += 1;
+    }
+
     for member in members.into_iter() {
         total += member.weight;
         let member_addr = deps.api.addr_validate(&member.addr)?;
