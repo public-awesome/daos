@@ -1,7 +1,7 @@
 #[cfg(not(feature = "library"))]
 use cosmwasm_std::entry_point;
 use cosmwasm_std::{
-    attr, to_binary, Addr, Binary, Deps, DepsMut, Env, MessageInfo, Order, Response, StdResult,
+    attr, to_binary, Binary, Deps, DepsMut, Env, MessageInfo, Order, Response, StdResult,
 };
 use cw2::set_contract_version;
 use cw4::{
@@ -25,17 +25,11 @@ const CONTRACT_VERSION: &str = env!("CARGO_PKG_VERSION");
 pub fn instantiate(
     deps: DepsMut,
     env: Env,
-    info: MessageInfo,
+    _info: MessageInfo,
     msg: InstantiateMsg,
 ) -> Result<Response, ContractError> {
     set_contract_version(deps.storage, CONTRACT_NAME, CONTRACT_VERSION)?;
-    create(
-        deps,
-        msg.admin,
-        msg.collection_addr,
-        env.block.height,
-        info.sender,
-    )?;
+    create(deps, msg.admin, msg.collection_addr, env.block.height)?;
     Ok(Response::default())
 }
 
@@ -46,7 +40,6 @@ pub fn create(
     admin: Option<String>,
     collection_addr: String,
     height: u64,
-    sender: Addr,
 ) -> Result<(), ContractError> {
     let admin_addr = admin
         .map(|admin| deps.api.addr_validate(&admin))
@@ -57,7 +50,7 @@ pub fn create(
 
     CONFIG.save(deps.storage, &Config { collection })?;
 
-    update_members(deps.branch(), height, sender)?;
+    update_members(deps.branch(), height)?;
 
     Ok(())
 }
@@ -83,6 +76,7 @@ pub fn execute(
     }
 }
 
+/// Note that anyone can call this.
 pub fn execute_update_members(
     mut deps: DepsMut,
     env: Env,
@@ -93,14 +87,11 @@ pub fn execute_update_members(
         attr("sender", &info.sender),
     ];
 
-    update_members(deps.branch(), env.block.height, info.sender)?;
+    update_members(deps.branch(), env.block.height)?;
     Ok(Response::new().add_attributes(attributes))
 }
 
-// the logic from execute_update_members extracted for easier import
-pub fn update_members(deps: DepsMut, height: u64, sender: Addr) -> Result<(), ContractError> {
-    ADMIN.assert_admin(deps.as_ref(), &sender)?;
-
+pub fn update_members(deps: DepsMut, height: u64) -> Result<(), ContractError> {
     let collection = CONFIG.load(deps.storage)?.collection;
 
     let mut total = 0u64;

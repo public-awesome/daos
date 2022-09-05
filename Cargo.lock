@@ -793,11 +793,12 @@ dependencies = [
 
 [[package]]
 name = "sg-nft-group"
-version = "0.14.0"
+version = "0.1.0"
 dependencies = [
  "cosmwasm-schema",
  "cosmwasm-std",
  "cw-controllers",
+ "cw-multi-test",
  "cw-storage-plus 0.14.0",
  "cw-utils 0.14.0",
  "cw2 0.14.0",
