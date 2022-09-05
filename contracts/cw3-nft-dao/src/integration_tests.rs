@@ -2,7 +2,7 @@
 mod tests {
     use crate::{
         contract::{CONTRACT_NAME, CONTRACT_VERSION},
-        msg::{ExecuteMsg, InstantiateMsg, QueryMsg},
+        msg::{ExecuteMsg, GroupResponse, InstantiateMsg, QueryMsg},
         ContractError,
     };
     use cosmwasm_std::{
@@ -12,11 +12,10 @@ mod tests {
     use cw2::{query_contract_info, ContractVersion};
     use cw3::{
         ProposalListResponse, ProposalResponse, Status, Vote, VoteInfo, VoteListResponse,
-        VoteResponse, VoterDetail, VoterListResponse, VoterResponse,
+        VoteResponse, VoterDetail, VoterListResponse,
     };
-    use cw3_flex_multisig::error::ContractError as Cw3FlexMultisigError;
     use cw3_flex_multisig::state::Executor as Cw3Executor;
-    use cw4::{Cw4ExecuteMsg, Member, MemberChangedHookMsg, MemberDiff};
+    use cw4::{Member, MemberChangedHookMsg, MemberDiff};
     use cw4_group::helpers::Cw4GroupContract;
     use cw721::{Cw721QueryMsg, OwnerOfResponse};
     use cw721_base::{
@@ -41,12 +40,24 @@ mod tests {
         }
     }
 
+    fn members() -> Vec<Member> {
+        vec![
+            member(OWNER, 0),
+            member(VOTER1, 1),
+            member(VOTER2, 2),
+            member(VOTER3, 3),
+            member(VOTER4, 12), // so that he alone can pass a 50 / 52% threshold proposal
+            member(VOTER5, 5),
+        ]
+    }
+
     pub fn contract_nft_dao() -> Box<dyn Contract<Empty>> {
         let contract = ContractWrapper::new(
             crate::contract::execute,
             crate::contract::instantiate,
             crate::contract::query,
-        );
+        )
+        .with_reply(crate::contract::reply);
         Box::new(contract)
     }
 
@@ -77,28 +88,19 @@ mod tests {
         })
     }
 
-    // uploads code and returns address of group contract
-    fn instantiate_group(app: &mut App, members: Vec<Member>) -> Addr {
-        let group_id = app.store_code(contract_group());
-        let msg = cw4_group::msg::InstantiateMsg {
-            admin: Some(OWNER.into()),
-            members,
-        };
-        app.instantiate_contract(group_id, Addr::unchecked(OWNER), &msg, &[], "group", None)
-            .unwrap()
-    }
-
     #[track_caller]
     fn instantiate_dao(
         app: &mut App,
-        group: Addr,
         threshold: Threshold,
         max_voting_period: Duration,
         executor: Option<Cw3Executor>,
     ) -> Addr {
         let dao_id = app.store_code(contract_nft_dao());
+        let group_id = app.store_code(contract_group());
+
         let msg = InstantiateMsg {
-            group_addr: group.to_string(),
+            group_code_id: group_id,
+            members: members(),
             threshold,
             max_voting_period,
             executor,
@@ -109,15 +111,14 @@ mod tests {
 
     // this will set up both contracts, instantiating the group with
     // all voters defined above, and the multisig pointing to it and given threshold criteria.
-    // Returns (multisig address, group address).
+    // Returns multisig address.
     #[track_caller]
     fn setup_test_case_fixed(
         app: &mut App,
         weight_needed: u64,
         max_voting_period: Duration,
         init_funds: Vec<Coin>,
-        multisig_as_group_admin: bool,
-    ) -> (Addr, Addr) {
+    ) -> Addr {
         setup_test_case(
             app,
             Threshold::AbsoluteCount {
@@ -125,7 +126,6 @@ mod tests {
             },
             max_voting_period,
             init_funds,
-            multisig_as_group_admin,
             None,
         )
     }
@@ -136,52 +136,17 @@ mod tests {
         threshold: Threshold,
         max_voting_period: Duration,
         init_funds: Vec<Coin>,
-        multisig_as_group_admin: bool,
         executor: Option<Cw3Executor>,
-    ) -> (Addr, Addr) {
-        // 1. Instantiate group contract with members (and OWNER as admin)
-        let members = vec![
-            member(OWNER, 0),
-            member(VOTER1, 1),
-            member(VOTER2, 2),
-            member(VOTER3, 3),
-            member(VOTER4, 12), // so that he alone can pass a 50 / 52% threshold proposal
-            member(VOTER5, 5),
-        ];
-        let group_addr = instantiate_group(app, members);
+    ) -> Addr {
+        let dao_addr = instantiate_dao(app, threshold, max_voting_period, executor);
         app.update_block(next_block);
-
-        // 2. Set up Multisig backed by this group
-        let dao_addr = instantiate_dao(
-            app,
-            group_addr.clone(),
-            threshold,
-            max_voting_period,
-            executor,
-        );
-        app.update_block(next_block);
-
-        // 3. (Optional) Set the multisig as the group owner
-        if multisig_as_group_admin {
-            let update_admin = Cw4ExecuteMsg::UpdateAdmin {
-                admin: Some(dao_addr.to_string()),
-            };
-            app.execute_contract(
-                Addr::unchecked(OWNER),
-                group_addr.clone(),
-                &update_admin,
-                &[],
-            )
-            .unwrap();
-            app.update_block(next_block);
-        }
 
         // Bonus: set some funds on the multisig contract for future proposals
         if !init_funds.is_empty() {
             app.send_tokens(Addr::unchecked(OWNER), dao_addr.clone(), &init_funds)
                 .unwrap();
         }
-        (dao_addr, group_addr)
+        dao_addr
     }
 
     fn proposal_info() -> (Vec<CosmosMsg<Empty>>, String, String) {
@@ -210,15 +175,17 @@ mod tests {
         let mut app = mock_app(&[]);
 
         // make a simple group
-        let group_addr = instantiate_group(&mut app, vec![member(OWNER, 1)]);
         let nft_dao_id = app.store_code(contract_nft_dao());
-        let vault_code_id = app.store_code(contract_cw721());
+        let group_code_id = app.store_code(contract_group());
+
+        let members = vec![member(OWNER, 1)];
 
         let max_voting_period = Duration::Time(1234567);
 
         // Zero required weight fails
         let instantiate_msg = InstantiateMsg {
-            group_addr: group_addr.to_string(),
+            group_code_id,
+            members: members.clone(),
             threshold: Threshold::ThresholdQuorum {
                 threshold: Decimal::zero(),
                 quorum: Decimal::percent(1),
@@ -243,7 +210,8 @@ mod tests {
 
         // Total weight less than required weight not allowed
         let instantiate_msg = InstantiateMsg {
-            group_addr: group_addr.to_string(),
+            group_code_id,
+            members: members.clone(),
             threshold: Threshold::AbsoluteCount { weight: 100 },
             max_voting_period,
             executor: None,
@@ -265,7 +233,8 @@ mod tests {
 
         // All valid
         let instantiate_msg = InstantiateMsg {
-            group_addr: group_addr.to_string(),
+            group_code_id,
+            members,
             threshold: Threshold::AbsoluteCount { weight: 1 },
             max_voting_period,
             executor: None,
@@ -318,18 +287,14 @@ mod tests {
 
         let required_weight = 4;
         let voting_period = Duration::Time(2000000);
-        let (dao_addr, _) =
-            setup_test_case_fixed(&mut app, required_weight, voting_period, init_funds, false);
+        let dao_addr = setup_test_case_fixed(&mut app, required_weight, voting_period, init_funds);
 
         let proposal = pay_somebody_proposal();
         // Only voters can propose
         let err = app
             .execute_contract(Addr::unchecked(SOMEBODY), dao_addr.clone(), &proposal, &[])
             .unwrap_err();
-        assert_eq!(
-            ContractError::Cw3FlexMultisig(Cw3FlexMultisigError::Unauthorized {}),
-            err.downcast().unwrap()
-        );
+        assert_eq!(ContractError::Unauthorized {}, err.downcast().unwrap());
 
         // Wrong expiration option fails
         let msgs = match proposal.clone() {
@@ -350,10 +315,7 @@ mod tests {
                 &[],
             )
             .unwrap_err();
-        assert_eq!(
-            ContractError::Cw3FlexMultisig(Cw3FlexMultisigError::WrongExpiration {}),
-            err.downcast().unwrap()
-        );
+        assert_eq!(ContractError::WrongExpiration {}, err.downcast().unwrap());
 
         // Proposal from voter works
         let res = app
@@ -403,8 +365,7 @@ mod tests {
             threshold: Decimal::percent(80),
             quorum: Decimal::percent(20),
         };
-        let (dao_addr, _) =
-            setup_test_case(&mut app, threshold, voting_period, init_funds, false, None);
+        let dao_addr = setup_test_case(&mut app, threshold, voting_period, init_funds, None);
 
         // create proposal with 1 vote power
         let proposal = pay_somebody_proposal();
@@ -524,8 +485,7 @@ mod tests {
             quorum: Decimal::percent(1),
         };
         let voting_period = Duration::Time(2000000);
-        let (dao_addr, _) =
-            setup_test_case(&mut app, threshold, voting_period, init_funds, false, None);
+        let dao_addr = setup_test_case(&mut app, threshold, voting_period, init_funds, None);
 
         // create proposal with 0 vote power
         let proposal = pay_somebody_proposal();
@@ -544,19 +504,13 @@ mod tests {
         let err = app
             .execute_contract(Addr::unchecked(OWNER), dao_addr.clone(), &yes_vote, &[])
             .unwrap_err();
-        assert_eq!(
-            ContractError::Cw3FlexMultisig(Cw3FlexMultisigError::Unauthorized {}),
-            err.downcast().unwrap()
-        );
+        assert_eq!(ContractError::Unauthorized {}, err.downcast().unwrap());
 
         // Only voters can vote
         let err = app
             .execute_contract(Addr::unchecked(SOMEBODY), dao_addr.clone(), &yes_vote, &[])
             .unwrap_err();
-        assert_eq!(
-            ContractError::Cw3FlexMultisig(Cw3FlexMultisigError::Unauthorized {}),
-            err.downcast().unwrap()
-        );
+        assert_eq!(ContractError::Unauthorized {}, err.downcast().unwrap());
 
         // But voter1 can
         let res = app
@@ -576,10 +530,7 @@ mod tests {
         let err = app
             .execute_contract(Addr::unchecked(VOTER1), dao_addr.clone(), &yes_vote, &[])
             .unwrap_err();
-        assert_eq!(
-            ContractError::Cw3FlexMultisig(Cw3FlexMultisigError::AlreadyVoted {}),
-            err.downcast().unwrap()
-        );
+        assert_eq!(ContractError::AlreadyVoted {}, err.downcast().unwrap());
 
         // No/Veto votes have no effect on the tally
         // Compute the current tally
@@ -610,20 +561,14 @@ mod tests {
         let err = app
             .execute_contract(Addr::unchecked(VOTER3), dao_addr.clone(), &yes_vote, &[])
             .unwrap_err();
-        assert_eq!(
-            ContractError::Cw3FlexMultisig(Cw3FlexMultisigError::AlreadyVoted {}),
-            err.downcast().unwrap()
-        );
+        assert_eq!(ContractError::AlreadyVoted {}, err.downcast().unwrap());
 
         // Expired proposals cannot be voted
         app.update_block(expire(voting_period));
         let err = app
             .execute_contract(Addr::unchecked(VOTER4), dao_addr.clone(), &yes_vote, &[])
             .unwrap_err();
-        assert_eq!(
-            ContractError::Cw3FlexMultisig(Cw3FlexMultisigError::Expired {}),
-            err.downcast().unwrap()
-        );
+        assert_eq!(ContractError::Expired {}, err.downcast().unwrap());
         app.update_block(unexpire(voting_period));
 
         // Powerful voter supports it, so it passes
@@ -640,13 +585,19 @@ mod tests {
             ],
         );
 
-        // non-Open proposals cannot be voted
-        let err = app
+        // Passed proposals can still be voted (while they are not expired or executed)
+        let res = app
             .execute_contract(Addr::unchecked(VOTER5), dao_addr.clone(), &yes_vote, &[])
-            .unwrap_err();
+            .unwrap();
+        // Verify
         assert_eq!(
-            ContractError::Cw3FlexMultisig(Cw3FlexMultisigError::NotOpen {}),
-            err.downcast().unwrap()
+            res.custom_attrs(1),
+            [
+                ("action", "vote"),
+                ("sender", VOTER5),
+                ("proposal_id", proposal_id.to_string().as_str()),
+                ("status", "Passed")
+            ]
         );
 
         // query individual votes
@@ -683,7 +634,7 @@ mod tests {
         );
 
         // non-voter
-        let voter = VOTER5.into();
+        let voter = SOMEBODY.into();
         let vote: VoteResponse = app
             .wrap()
             .query_wasm_smart(&dao_addr, &QueryMsg::Vote { proposal_id, voter })
@@ -710,7 +661,7 @@ mod tests {
 
         // Powerful voter opposes it, so it rejects
         let res = app
-            .execute_contract(Addr::unchecked(VOTER4), dao_addr, &no_vote, &[])
+            .execute_contract(Addr::unchecked(VOTER4), dao_addr.clone(), &no_vote, &[])
             .unwrap();
 
         assert_eq!(
@@ -718,6 +669,25 @@ mod tests {
             [
                 ("action", "vote"),
                 ("sender", VOTER4),
+                ("proposal_id", proposal_id.to_string().as_str()),
+                ("status", "Rejected"),
+            ],
+        );
+
+        // Rejected proposals can still be voted (while they are not expired)
+        let yes_vote = ExecuteMsg::Vote {
+            proposal_id,
+            vote: Vote::Yes,
+        };
+        let res = app
+            .execute_contract(Addr::unchecked(VOTER5), dao_addr, &yes_vote, &[])
+            .unwrap();
+
+        assert_eq!(
+            res.custom_attrs(1),
+            [
+                ("action", "vote"),
+                ("sender", VOTER5),
                 ("proposal_id", proposal_id.to_string().as_str()),
                 ("status", "Rejected"),
             ],
@@ -734,8 +704,7 @@ mod tests {
             quorum: Decimal::percent(1),
         };
         let voting_period = Duration::Time(2000000);
-        let (dao_addr, _) =
-            setup_test_case(&mut app, threshold, voting_period, init_funds, true, None);
+        let dao_addr = setup_test_case(&mut app, threshold, voting_period, init_funds, None);
 
         // ensure we have cash to cover the proposal
         let contract_bal = app.wrap().query_balance(&dao_addr, "BTC").unwrap();
@@ -756,7 +725,7 @@ mod tests {
             .execute_contract(Addr::unchecked(OWNER), dao_addr.clone(), &execution, &[])
             .unwrap_err();
         assert_eq!(
-            ContractError::Cw3FlexMultisig(Cw3FlexMultisigError::WrongExecuteStatus {}),
+            ContractError::WrongExecuteStatus {},
             err.downcast().unwrap()
         );
 
@@ -783,10 +752,7 @@ mod tests {
         let err = app
             .execute_contract(Addr::unchecked(OWNER), dao_addr.clone(), &closing, &[])
             .unwrap_err();
-        assert_eq!(
-            ContractError::Cw3FlexMultisig(Cw3FlexMultisigError::WrongCloseStatus {}),
-            err.downcast().unwrap()
-        );
+        assert_eq!(ContractError::WrongCloseStatus {}, err.downcast().unwrap());
 
         // Execute works. Anybody can execute Passed proposals
         let res = app
@@ -811,17 +777,14 @@ mod tests {
         let err = app
             .execute_contract(Addr::unchecked(OWNER), dao_addr.clone(), &closing, &[])
             .unwrap_err();
-        assert_eq!(
-            ContractError::Cw3FlexMultisig(Cw3FlexMultisigError::WrongCloseStatus {}),
-            err.downcast().unwrap()
-        );
+        assert_eq!(ContractError::WrongCloseStatus {}, err.downcast().unwrap());
 
         // Trying to execute something that was already executed fails
         let err = app
             .execute_contract(Addr::unchecked(SOMEBODY), dao_addr, &execution, &[])
             .unwrap_err();
         assert_eq!(
-            ContractError::Cw3FlexMultisig(Cw3FlexMultisigError::WrongExecuteStatus {}),
+            ContractError::WrongExecuteStatus {},
             err.downcast().unwrap()
         );
     }
@@ -836,12 +799,11 @@ mod tests {
             quorum: Decimal::percent(1),
         };
         let voting_period = Duration::Time(2000000);
-        let (dao_addr, _) = setup_test_case(
+        let dao_addr = setup_test_case(
             &mut app,
             threshold,
             voting_period,
             init_funds,
-            true,
             Some(Cw3Executor::Member), // set executor as Member of voting group
         );
 
@@ -871,10 +833,7 @@ mod tests {
                 &[],
             )
             .unwrap_err();
-        assert_eq!(
-            ContractError::Cw3FlexMultisig(Cw3FlexMultisigError::Unauthorized {}),
-            err.downcast().unwrap()
-        );
+        assert_eq!(ContractError::Unauthorized {}, err.downcast().unwrap());
 
         app.execute_contract(
             Addr::unchecked(Addr::unchecked(VOTER2)), // member of voting group is allowed to execute
@@ -895,12 +854,11 @@ mod tests {
             quorum: Decimal::percent(1),
         };
         let voting_period = Duration::Time(2000000);
-        let (dao_addr, _) = setup_test_case(
+        let dao_addr = setup_test_case(
             &mut app,
             threshold,
             voting_period,
             init_funds,
-            true,
             Some(Cw3Executor::Only(Addr::unchecked(VOTER3))), // only VOTER3 can execute proposal
         );
 
@@ -930,10 +888,7 @@ mod tests {
                 &[],
             )
             .unwrap_err();
-        assert_eq!(
-            ContractError::Cw3FlexMultisig(Cw3FlexMultisigError::Unauthorized {}),
-            err.downcast().unwrap()
-        );
+        assert_eq!(ContractError::Unauthorized {}, err.downcast().unwrap());
 
         let err = app
             .execute_contract(
@@ -943,10 +898,7 @@ mod tests {
                 &[],
             )
             .unwrap_err();
-        assert_eq!(
-            ContractError::Cw3FlexMultisig(Cw3FlexMultisigError::Unauthorized {}),
-            err.downcast().unwrap()
-        );
+        assert_eq!(ContractError::Unauthorized {}, err.downcast().unwrap());
 
         app.execute_contract(
             Addr::unchecked(Addr::unchecked(VOTER3)), // VOTER3 is allowed to execute
@@ -967,12 +919,11 @@ mod tests {
             quorum: Decimal::percent(1),
         };
         let voting_period = 2000000;
-        let (dao_addr, _) = setup_test_case(
+        let dao_addr = setup_test_case(
             &mut app,
             threshold,
             Duration::Time(voting_period),
             init_funds,
-            true,
             None,
         );
 
@@ -1049,8 +1000,7 @@ mod tests {
             quorum: Decimal::percent(1),
         };
         let voting_period = Duration::Height(2000000);
-        let (dao_addr, _) =
-            setup_test_case(&mut app, threshold, voting_period, init_funds, true, None);
+        let dao_addr = setup_test_case(&mut app, threshold, voting_period, init_funds, None);
 
         // create proposal with 0 vote power
         let proposal = pay_somebody_proposal();
@@ -1066,10 +1016,7 @@ mod tests {
         let err = app
             .execute_contract(Addr::unchecked(SOMEBODY), dao_addr.clone(), &closing, &[])
             .unwrap_err();
-        assert_eq!(
-            ContractError::Cw3FlexMultisig(Cw3FlexMultisigError::NotExpired {}),
-            err.downcast().unwrap()
-        );
+        assert_eq!(ContractError::NotExpired {}, err.downcast().unwrap());
 
         // Expired proposals can be closed
         app.update_block(expire(voting_period));
@@ -1090,143 +1037,11 @@ mod tests {
         let err = app
             .execute_contract(Addr::unchecked(SOMEBODY), dao_addr, &closing, &[])
             .unwrap_err();
-        assert_eq!(
-            ContractError::Cw3FlexMultisig(Cw3FlexMultisigError::WrongCloseStatus {}),
-            err.downcast().unwrap()
-        );
+        assert_eq!(ContractError::WrongCloseStatus {}, err.downcast().unwrap());
     }
 
     // uses the power from the beginning of the voting period
-    #[test]
-    fn execute_group_changes_from_external() {
-        let init_funds = coins(10, "BTC");
-        let mut app = mock_app(&init_funds);
-
-        let threshold = Threshold::ThresholdQuorum {
-            threshold: Decimal::percent(51),
-            quorum: Decimal::percent(1),
-        };
-        let voting_period = Duration::Time(20000);
-        let (dao_addr, group_addr) =
-            setup_test_case(&mut app, threshold, voting_period, init_funds, false, None);
-
-        // VOTER1 starts a proposal to send some tokens (1/4 votes)
-        let proposal = pay_somebody_proposal();
-        let res = app
-            .execute_contract(Addr::unchecked(VOTER1), dao_addr.clone(), &proposal, &[])
-            .unwrap();
-        // Get the proposal id from the logs
-        let proposal_id: u64 = res.custom_attrs(1)[2].value.parse().unwrap();
-        let prop_status = |app: &App, proposal_id: u64| -> Status {
-            let query_prop = QueryMsg::Proposal { proposal_id };
-            let prop: ProposalResponse =
-                app.wrap().query_wasm_smart(&dao_addr, &query_prop).unwrap();
-            prop.status
-        };
-
-        // 1/4 votes
-        assert_eq!(prop_status(&app, proposal_id), Status::Open);
-
-        // check current threshold (global)
-        let threshold: ThresholdResponse = app
-            .wrap()
-            .query_wasm_smart(&dao_addr, &QueryMsg::Threshold {})
-            .unwrap();
-        let expected_thresh = ThresholdResponse::ThresholdQuorum {
-            total_weight: 23,
-            threshold: Decimal::percent(51),
-            quorum: Decimal::percent(1),
-        };
-        assert_eq!(expected_thresh, threshold);
-
-        // a few blocks later...
-        app.update_block(|block| block.height += 2);
-
-        // admin changes the group
-        // updates VOTER2 power to 21 -> with snapshot, vote doesn't pass proposal
-        // adds NEWBIE with 2 power -> with snapshot, invalid vote
-        // removes VOTER3 -> with snapshot, can vote on proposal
-        let newbie: &str = "newbie";
-        let update_msg = cw4_group::msg::ExecuteMsg::UpdateMembers {
-            remove: vec![VOTER3.into()],
-            add: vec![member(VOTER2, 21), member(newbie, 2)],
-        };
-        app.execute_contract(Addr::unchecked(OWNER), group_addr, &update_msg, &[])
-            .unwrap();
-
-        // check membership queries properly updated
-        let query_voter = QueryMsg::Voter {
-            address: VOTER3.into(),
-        };
-        let power: VoterResponse = app
-            .wrap()
-            .query_wasm_smart(&dao_addr, &query_voter)
-            .unwrap();
-        assert_eq!(power.weight, None);
-
-        // proposal still open
-        assert_eq!(prop_status(&app, proposal_id), Status::Open);
-
-        // a few blocks later...
-        app.update_block(|block| block.height += 3);
-
-        // make a second proposal
-        let proposal2 = pay_somebody_proposal();
-        let res = app
-            .execute_contract(Addr::unchecked(VOTER1), dao_addr.clone(), &proposal2, &[])
-            .unwrap();
-        // Get the proposal id from the logs
-        let proposal_id2: u64 = res.custom_attrs(1)[2].value.parse().unwrap();
-
-        // VOTER2 can pass this alone with the updated vote (newer height ignores snapshot)
-        let yes_vote = ExecuteMsg::Vote {
-            proposal_id: proposal_id2,
-            vote: Vote::Yes,
-        };
-        app.execute_contract(Addr::unchecked(VOTER2), dao_addr.clone(), &yes_vote, &[])
-            .unwrap();
-        assert_eq!(prop_status(&app, proposal_id2), Status::Passed);
-
-        // VOTER2 can only vote on first proposal with weight of 2 (not enough to pass)
-        let yes_vote = ExecuteMsg::Vote {
-            proposal_id,
-            vote: Vote::Yes,
-        };
-        app.execute_contract(Addr::unchecked(VOTER2), dao_addr.clone(), &yes_vote, &[])
-            .unwrap();
-        assert_eq!(prop_status(&app, proposal_id), Status::Open);
-
-        // newbie cannot vote
-        let err = app
-            .execute_contract(Addr::unchecked(newbie), dao_addr.clone(), &yes_vote, &[])
-            .unwrap_err();
-        assert_eq!(
-            ContractError::Cw3FlexMultisig(Cw3FlexMultisigError::Unauthorized {}),
-            err.downcast().unwrap()
-        );
-
-        // previously removed VOTER3 can still vote, passing the proposal
-        app.execute_contract(Addr::unchecked(VOTER3), dao_addr.clone(), &yes_vote, &[])
-            .unwrap();
-
-        // check current threshold (global) is updated
-        let threshold: ThresholdResponse = app
-            .wrap()
-            .query_wasm_smart(&dao_addr, &QueryMsg::Threshold {})
-            .unwrap();
-        let expected_thresh = ThresholdResponse::ThresholdQuorum {
-            total_weight: 41,
-            threshold: Decimal::percent(51),
-            quorum: Decimal::percent(1),
-        };
-        assert_eq!(expected_thresh, threshold);
-
-        // TODO: check proposal threshold not changed
-    }
-
-    // uses the power from the beginning of the voting period
-    // similar to above - simpler case, but shows that one proposals can
-    // trigger the action
+    // shows that one proposals can trigger the action
     #[test]
     fn execute_group_changes_from_proposal() {
         let init_funds = coins(10, "BTC");
@@ -1234,11 +1049,15 @@ mod tests {
 
         let required_weight = 4;
         let voting_period = Duration::Time(20000);
-        let (dao_addr, group_addr) =
-            setup_test_case_fixed(&mut app, required_weight, voting_period, init_funds, true);
+        let dao_addr = setup_test_case_fixed(&mut app, required_weight, voting_period, init_funds);
+
+        let res: GroupResponse = app
+            .wrap()
+            .query_wasm_smart(dao_addr.clone(), &QueryMsg::Group {})
+            .unwrap();
 
         // Start a proposal to remove VOTER3 from the set
-        let update_msg = Cw4GroupContract::new(group_addr)
+        let update_msg = Cw4GroupContract(res.group)
             .update_members(vec![VOTER3.into()], vec![])
             .unwrap();
         let update_proposal = ExecuteMsg::Propose {
@@ -1328,10 +1147,7 @@ mod tests {
                 &[],
             )
             .unwrap_err();
-        assert_eq!(
-            ContractError::Cw3FlexMultisig(Cw3FlexMultisigError::Unauthorized {}),
-            err.downcast().unwrap()
-        );
+        assert_eq!(ContractError::Unauthorized {}, err.downcast().unwrap());
 
         // extra: ensure no one else can call the hook
         let hook_hack = ExecuteMsg::MemberChangedHook(MemberChangedHookMsg {
@@ -1340,10 +1156,7 @@ mod tests {
         let err = app
             .execute_contract(Addr::unchecked(VOTER2), dao_addr.clone(), &hook_hack, &[])
             .unwrap_err();
-        assert_eq!(
-            ContractError::Cw3FlexMultisig(Cw3FlexMultisigError::Unauthorized {}),
-            err.downcast().unwrap()
-        );
+        assert_eq!(ContractError::Unauthorized {}, err.downcast().unwrap());
     }
 
     // uses the power from the beginning of the voting period
@@ -1358,8 +1171,7 @@ mod tests {
             quorum: Decimal::percent(1),
         };
         let voting_period = Duration::Time(20000);
-        let (dao_addr, group_addr) =
-            setup_test_case(&mut app, threshold, voting_period, init_funds, false, None);
+        let dao_addr = setup_test_case(&mut app, threshold, voting_period, init_funds, None);
 
         // VOTER3 starts a proposal to send some tokens (3/12 votes)
         let proposal = pay_somebody_proposal();
@@ -1381,13 +1193,50 @@ mod tests {
         // a few blocks later...
         app.update_block(|block| block.height += 2);
 
+        let res: GroupResponse = app
+            .wrap()
+            .query_wasm_smart(dao_addr.clone(), &QueryMsg::Group {})
+            .unwrap();
+
         // admin changes the group (3 -> 0, 2 -> 9, 0 -> 29) - total = 56, require 29 to pass
         let newbie: &str = "newbie";
-        let update_msg = cw4_group::msg::ExecuteMsg::UpdateMembers {
-            remove: vec![VOTER3.into()],
-            add: vec![member(VOTER2, 9), member(newbie, 29)],
+        let update_msg = Cw4GroupContract(res.group)
+            .update_members(
+                vec![VOTER3.into()],
+                vec![member(VOTER2, 9), member(newbie, 29)],
+            )
+            .unwrap();
+        let update_proposal = ExecuteMsg::Propose {
+            title: "Change group".to_string(),
+            description: "Update membership".to_string(),
+            msgs: vec![update_msg],
+            latest: None,
         };
-        app.execute_contract(Addr::unchecked(OWNER), group_addr, &update_msg, &[])
+        let res = app
+            .execute_contract(
+                Addr::unchecked(VOTER1),
+                dao_addr.clone(),
+                &update_proposal,
+                &[],
+            )
+            .unwrap();
+        // Get the proposal id from the logs
+        let update_proposal_id: u64 = res.custom_attrs(1)[2].value.parse().unwrap();
+
+        // next block...
+        app.update_block(|b| b.height += 1);
+
+        // Pass and execute first proposal
+        let yes_vote = ExecuteMsg::Vote {
+            proposal_id: update_proposal_id,
+            vote: Vote::Yes,
+        };
+        app.execute_contract(Addr::unchecked(VOTER4), dao_addr.clone(), &yes_vote, &[])
+            .unwrap();
+        let execution = ExecuteMsg::Execute {
+            proposal_id: update_proposal_id,
+        };
+        app.execute_contract(Addr::unchecked(VOTER4), dao_addr.clone(), &execution, &[])
             .unwrap();
 
         // a few blocks later...
@@ -1428,7 +1277,7 @@ mod tests {
         // 33% required for quora, which is 8 of the initial 24
         // 50% yes required to pass early (12 of the initial 24)
         let voting_period = Duration::Time(20000);
-        let (dao_addr, group_addr) = setup_test_case(
+        let dao_addr = setup_test_case(
             &mut app,
             Threshold::ThresholdQuorum {
                 threshold: Decimal::percent(51),
@@ -1436,7 +1285,6 @@ mod tests {
             },
             voting_period,
             init_funds,
-            false,
             None,
         );
 
@@ -1460,13 +1308,50 @@ mod tests {
         // a few blocks later...
         app.update_block(|block| block.height += 2);
 
-        // admin changes the group (3 -> 0, 2 -> 9, 0 -> 28) - total = 55, require 28 to pass
+        let res: GroupResponse = app
+            .wrap()
+            .query_wasm_smart(dao_addr.clone(), &QueryMsg::Group {})
+            .unwrap();
+
+        // admin changes the group (3 -> 0, 2 -> 9, 0 -> 29) - total = 56, require 29 to pass
         let newbie: &str = "newbie";
-        let update_msg = cw4_group::msg::ExecuteMsg::UpdateMembers {
-            remove: vec![VOTER3.into()],
-            add: vec![member(VOTER2, 9), member(newbie, 29)],
+        let update_msg = Cw4GroupContract(res.group)
+            .update_members(
+                vec![VOTER3.into()],
+                vec![member(VOTER2, 9), member(newbie, 29)],
+            )
+            .unwrap();
+        let update_proposal = ExecuteMsg::Propose {
+            title: "Change group".to_string(),
+            description: "Update membership".to_string(),
+            msgs: vec![update_msg],
+            latest: None,
         };
-        app.execute_contract(Addr::unchecked(OWNER), group_addr, &update_msg, &[])
+        let res = app
+            .execute_contract(
+                Addr::unchecked(VOTER1),
+                dao_addr.clone(),
+                &update_proposal,
+                &[],
+            )
+            .unwrap();
+        // Get the proposal id from the logs
+        let update_proposal_id: u64 = res.custom_attrs(1)[2].value.parse().unwrap();
+
+        // next block...
+        app.update_block(|b| b.height += 1);
+
+        // Pass and execute first proposal
+        let yes_vote = ExecuteMsg::Vote {
+            proposal_id: update_proposal_id,
+            vote: Vote::Yes,
+        };
+        app.execute_contract(Addr::unchecked(VOTER4), dao_addr.clone(), &yes_vote, &[])
+            .unwrap();
+        let execution = ExecuteMsg::Execute {
+            proposal_id: update_proposal_id,
+        };
+        app.execute_contract(Addr::unchecked(VOTER4), dao_addr.clone(), &execution, &[])
             .unwrap();
 
         // a few blocks later...
@@ -1496,7 +1381,7 @@ mod tests {
         // 33% required for quora, which is 5 of the initial 15
         // 50% yes required to pass early (8 of the initial 15)
         let voting_period = Duration::Time(20000);
-        let (dao_addr, _) = setup_test_case(
+        let dao_addr = setup_test_case(
             &mut app,
             // note that 60% yes is not enough to pass without 20% no as well
             Threshold::ThresholdQuorum {
@@ -1505,7 +1390,6 @@ mod tests {
             },
             voting_period,
             init_funds,
-            false,
             None,
         );
 
@@ -1608,8 +1492,7 @@ mod tests {
             quorum: Decimal::percent(1),
         };
         let voting_period = Duration::Time(2000000);
-        let (dao_addr, _) =
-            setup_test_case(&mut app, threshold, voting_period, init_funds, true, None);
+        let dao_addr = setup_test_case(&mut app, threshold, voting_period, init_funds, None);
 
         // ensure we have cash to cover the proposal
         let contract_bal = app.wrap().query_balance(&dao_addr, "BTC").unwrap();
@@ -1681,7 +1564,7 @@ mod tests {
             quorum: Decimal::percent(1),
         };
         let voting_period = Duration::Time(2000000);
-        let (dao_addr, _) = setup_test_case(&mut app, threshold, voting_period, vec![], true, None);
+        let dao_addr = setup_test_case(&mut app, threshold, voting_period, vec![], None);
 
         // transfer NFT from collection to DAO
         let transfer_msg: Cw721ExecuteMsg<Extension, Extension> = Cw721ExecuteMsg::TransferNft {
@@ -1711,7 +1594,7 @@ mod tests {
             .execute_contract(Addr::unchecked(OWNER), dao_addr.clone(), &execution, &[])
             .unwrap_err();
         assert_eq!(
-            ContractError::Cw3FlexMultisig(Cw3FlexMultisigError::WrongExecuteStatus {}),
+            ContractError::WrongExecuteStatus {},
             err.downcast().unwrap()
         );
 
@@ -1738,10 +1621,7 @@ mod tests {
         let err = app
             .execute_contract(Addr::unchecked(OWNER), dao_addr.clone(), &closing, &[])
             .unwrap_err();
-        assert_eq!(
-            ContractError::Cw3FlexMultisig(Cw3FlexMultisigError::WrongCloseStatus {}),
-            err.downcast().unwrap()
-        );
+        assert_eq!(ContractError::WrongCloseStatus {}, err.downcast().unwrap());
 
         // Execute works. Anybody can execute Passed proposals
         let res = app
@@ -1773,17 +1653,14 @@ mod tests {
         let err = app
             .execute_contract(Addr::unchecked(OWNER), dao_addr.clone(), &closing, &[])
             .unwrap_err();
-        assert_eq!(
-            ContractError::Cw3FlexMultisig(Cw3FlexMultisigError::WrongCloseStatus {}),
-            err.downcast().unwrap()
-        );
+        assert_eq!(ContractError::WrongCloseStatus {}, err.downcast().unwrap());
 
         // Trying to execute something that was already executed fails
         let err = app
             .execute_contract(Addr::unchecked(SOMEBODY), dao_addr, &execution, &[])
             .unwrap_err();
         assert_eq!(
-            ContractError::Cw3FlexMultisig(Cw3FlexMultisigError::WrongExecuteStatus {}),
+            ContractError::WrongExecuteStatus {},
             err.downcast().unwrap()
         );
     }
