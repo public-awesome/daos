@@ -1,7 +1,7 @@
 use cosmwasm_std::{CosmosMsg, Empty};
 use cw3::Vote;
 use cw3_flex_multisig::state::Executor;
-use cw4::{Cw4Contract, Member, MemberChangedHookMsg};
+use cw4::{Cw4Contract, Member};
 use cw_utils::{Duration, Expiration, Threshold};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -24,7 +24,7 @@ pub enum ExecuteMsg {
     Propose {
         title: String,
         description: String,
-        // TODO: Empty needs to be StargazeMsgWrapper?
+        // TODO: Empty needs to be StargazeMsgWrapper for Stargaze proposals like creating a collection?
         msgs: Vec<CosmosMsg<Empty>>,
         // note: we ignore API-spec'd earliest if passed, always opens immediately
         latest: Option<Expiration>,
@@ -39,8 +39,6 @@ pub enum ExecuteMsg {
     Close {
         proposal_id: u64,
     },
-    /// Handles update hook messages from the group contract
-    MemberChangedHook(MemberChangedHookMsg),
 }
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, JsonSchema, Debug)]

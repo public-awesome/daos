@@ -6,6 +6,10 @@ resolver = "2"
 codegen-units = 1
 incremental = false
 
+[profile.release.package.sg-nft-group]
+codegen-units = 1
+incremental = false
+
 [profile.release]
 rpath = false
 lto = true
