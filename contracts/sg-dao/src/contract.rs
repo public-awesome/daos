@@ -22,7 +22,7 @@ use crate::msg::{ExecuteMsg, GroupResponse, InstantiateMsg, QueryMsg};
 use crate::state::{Config, CONFIG, GROUP};
 
 // version info for migration info
-pub const CONTRACT_NAME: &str = "crates.io:cw3-nft-dao";
+pub const CONTRACT_NAME: &str = "crates.io:sg-dao";
 pub const CONTRACT_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 const INIT_GROUP_REPLY_ID: u64 = 1;
@@ -92,6 +92,9 @@ pub fn execute(
     }
 }
 
+/// NOTE for frontend:
+/// 1. call UpdateMembers{} on the group if its an NFT group before calling this
+/// 2. create the proposal...
 pub fn execute_propose(
     deps: DepsMut,
     env: Env,

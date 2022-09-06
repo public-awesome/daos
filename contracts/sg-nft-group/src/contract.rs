@@ -99,6 +99,7 @@ pub fn update_members(deps: DepsMut, height: u64) -> Result<(), ContractError> {
 
     // TODO: check how much gas this takes for 10,000 tokens
     // TODO: maybe check the number of tokens in collection, and have a max?
+    // TODO: check limit
 
     // fetch all owners from the collection
     let all_tokens_msg = Cw721QueryMsg::AllTokens {
