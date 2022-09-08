@@ -112,6 +112,8 @@ pub fn update_members(deps: DepsMut, height: u64) -> Result<(), ContractError> {
 
     // create a member for each owner
     for token in res.tokens {
+        // TODO: see if this can be switched to a raw query for efficiency
+        // i.e: read directly from tokens indexmap: `tokens: IndexedMap::new(tokens_key, indexes)`
         let res: OwnerOfResponse = deps.querier.query_wasm_smart(
             collection.to_string(),
             &Cw721QueryMsg::OwnerOf {
