@@ -2,7 +2,7 @@
 
 A Stargaze DAO is made up of two contracts that work together:
 
-- A cw3 contract that handles proposals and voting ([sg-gov](./contracts/sg-gov/README.md)
+- A cw3 contract that handles proposals and voting ([sg-gov](./contracts/sg-gov/README.md))
 - A cw4 contract that handles group membership and weights
 
 The treasury resides in the sg-gov contract. Fungible and non-fungible tokens can be sent to this contract.
