@@ -909,25 +909,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "sg-nft-group"
-version = "0.1.0"
-dependencies = [
- "cosmwasm-schema",
- "cosmwasm-std",
- "cw-controllers 0.14.0",
- "cw-multi-test",
- "cw-storage-plus 0.14.0",
- "cw-utils 0.14.0",
- "cw2 0.14.0",
- "cw4 0.14.0",
- "cw721 0.13.4 (registry+https://github.com/rust-lang/crates.io-index)",
- "cw721-base",
- "schemars",
- "serde",
- "thiserror",
-]
-
-[[package]]
 name = "sg-nft-stake"
 version = "0.1.0"
 dependencies = [
