@@ -1,8 +1,15 @@
 # Stargaze DAOs
 
-## TODO
+A Stargaze DAO is made up of two contracts that work together:
 
-- [ ] where should NFTs be sent to? sg-dao or sg-nft-stake?
+- A cw3 contract that handles proposals and voting
+- A cw4 contract that handles group membership and weights
+
+The treasury resides in the cw3 contract. Fungible and non-fungible tokens can be sent to this contract.
+
+The group contract is purely for group memberships, such as membership based on NFT staking. Funds _should not_ be sent to this contract.
+
+This architecture enables multiple DAOs to be backed by the same group.
 
 ## Contracts
 

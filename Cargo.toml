@@ -2,11 +2,42 @@
 members = ["contracts/*"]
 resolver = "2"
 
+[workspace.package]
+version    = "0.1.0"
+edition    = "2021"
+homepage   = "https://stargaze.zone"
+repository = "https://github.com/public-awesome/daos"
+license    = "Apache-2.0"
+
+[workspace.dependencies]
+cosmwasm-schema     = "1.1.5"
+cosmwasm-std        = "1.1.5"
+cw2                 = "0.16.0"
+cw4                 = "0.16.0"
+cw20                = "0.16.0"
+cw721               = "0.16.0"
+cw721-base          = "0.16.0"
+cw-controllers      = "0.16.0"
+cw-multi-test       = "0.16.0"
+cw-storage-macro    = "0.16.0"
+cw-storage-plus     = "0.16.0"
+cw-utils            = "0.16.0"
+schemars            = "0.8.11"
+semver              = "1"
+serde               = { version = "1.0.145", default-features = false, features = ["derive"] }
+sg1                 = "0.21.1"
+sg721               = "0.21.1"
+sg721-base          = "0.21.1"
+sg-controllers      = "0.21.1"
+sg-multi-test       = "0.21.1"
+sg-std              = "0.21.1"
+thiserror           = "1.0.31"
+
 [profile.release.package.sg-dao]
 codegen-units = 1
 incremental = false
 
-[profile.release.package.sg-nft-group]
+[profile.release.package.sg-nft-stake]
 codegen-units = 1
 incremental = false
 
