@@ -2,7 +2,7 @@
 mod tests {
     use crate::{
         contract::{CONTRACT_NAME, CONTRACT_VERSION},
-        msg::{ExecuteMsg, Group, GroupResponse, InstantiateMsg, QueryMsg},
+        msg::{Admin, Cw4Instantiate, ExecuteMsg, Group, GroupResponse, InstantiateMsg, QueryMsg},
         ContractError,
     };
     use cosmwasm_std::{
@@ -15,7 +15,7 @@ mod tests {
         VoteResponse, VoterDetail, VoterListResponse,
     };
     // use cw3_flex_multisig::state::Executor as Cw3Executor;
-    use cw4::Member;
+    use cw4::{Cw4ExecuteMsg, Member};
     use cw4_group::helpers::Cw4GroupContract;
     use cw721::{Cw721QueryMsg, OwnerOfResponse};
     use cw721_base::{
@@ -90,6 +90,22 @@ mod tests {
         })
     }
 
+    /// create a cw4-group initialized with the given members
+    fn cw4_group_init_info(app: &mut App, members: Vec<Member>) -> Cw4Instantiate {
+        let group_id = app.store_code(contract_group());
+
+        Cw4Instantiate {
+            code_id: group_id,
+            msg: to_binary(&cw4_group::msg::InstantiateMsg {
+                admin: Some(Addr::unchecked(OWNER).to_string()),
+                members,
+            })
+            .unwrap(),
+            admin: Some(Admin::Creator {}),
+            label: "Test-Group".to_string(),
+        }
+    }
+
     #[track_caller]
     fn instantiate_dao(
         app: &mut App,
@@ -98,10 +114,9 @@ mod tests {
         executor: Option<crate::state::Executor>,
     ) -> Addr {
         let dao_id = app.store_code(contract_nft_dao());
-        let group_id = app.store_code(contract_group());
 
         let msg = InstantiateMsg {
-            group: Group::ContractInfo(group_id),
+            group: Group::Cw4Instantiate(cw4_group_init_info(app, members())),
             threshold,
             max_voting_period,
             executor,
@@ -119,6 +134,7 @@ mod tests {
         weight_needed: u64,
         max_voting_period: Duration,
         init_funds: Vec<Coin>,
+        multisig_as_group_admin: bool,
     ) -> Addr {
         setup_test_case(
             app,
@@ -127,6 +143,7 @@ mod tests {
             },
             max_voting_period,
             init_funds,
+            multisig_as_group_admin,
             None,
         )
     }
@@ -137,10 +154,27 @@ mod tests {
         threshold: Threshold,
         max_voting_period: Duration,
         init_funds: Vec<Coin>,
+        multisig_as_group_admin: bool,
         executor: Option<crate::state::Executor>,
     ) -> Addr {
         let dao_addr = instantiate_dao(app, threshold, max_voting_period, executor);
         app.update_block(next_block);
+
+        // Get the group address from the DAO
+        let res: GroupResponse = app
+            .wrap()
+            .query_wasm_smart(&dao_addr, &QueryMsg::Group {})
+            .unwrap();
+
+        // 3. (Optional) Set the multisig as the group owner
+        if multisig_as_group_admin {
+            let update_admin = Cw4ExecuteMsg::UpdateAdmin {
+                admin: Some(dao_addr.to_string()),
+            };
+            app.execute_contract(Addr::unchecked(OWNER), res.group.addr(), &update_admin, &[])
+                .unwrap();
+            app.update_block(next_block);
+        }
 
         // Bonus: set some funds on the multisig contract for future proposals
         if !init_funds.is_empty() {
@@ -177,15 +211,13 @@ mod tests {
 
         // make a simple group
         let nft_dao_id = app.store_code(contract_nft_dao());
-        let group_id = app.store_code(contract_group());
+        let max_voting_period = Duration::Time(1234567);
 
         let members = vec![member(OWNER, 1)];
 
-        let max_voting_period = Duration::Time(1234567);
-
         // Zero required weight fails
         let instantiate_msg = InstantiateMsg {
-            group: Group::ContractInfo(group_id),
+            group: Group::Cw4Instantiate(cw4_group_init_info(&mut app, members.clone())),
             threshold: Threshold::ThresholdQuorum {
                 threshold: Decimal::zero(),
                 quorum: Decimal::percent(1),
@@ -210,7 +242,7 @@ mod tests {
 
         // Total weight less than required weight not allowed
         let instantiate_msg = InstantiateMsg {
-            group: Group::ContractInfo(group_id),
+            group: Group::Cw4Instantiate(cw4_group_init_info(&mut app, members.clone())),
             threshold: Threshold::AbsoluteCount { weight: 100 },
             max_voting_period,
             executor: None,
@@ -232,7 +264,7 @@ mod tests {
 
         // All valid
         let instantiate_msg = InstantiateMsg {
-            group: Group::ContractInfo(group_id),
+            group: Group::Cw4Instantiate(cw4_group_init_info(&mut app, members)),
             threshold: Threshold::AbsoluteCount { weight: 1 },
             max_voting_period,
             executor: None,
@@ -285,7 +317,8 @@ mod tests {
 
         let required_weight = 4;
         let voting_period = Duration::Time(2000000);
-        let dao_addr = setup_test_case_fixed(&mut app, required_weight, voting_period, init_funds);
+        let dao_addr =
+            setup_test_case_fixed(&mut app, required_weight, voting_period, init_funds, false);
 
         let proposal = pay_somebody_proposal();
         // Only voters can propose
@@ -363,7 +396,7 @@ mod tests {
             threshold: Decimal::percent(80),
             quorum: Decimal::percent(20),
         };
-        let dao_addr = setup_test_case(&mut app, threshold, voting_period, init_funds, None);
+        let dao_addr = setup_test_case(&mut app, threshold, voting_period, init_funds, false, None);
 
         // create proposal with 1 vote power
         let proposal = pay_somebody_proposal();
@@ -483,7 +516,7 @@ mod tests {
             quorum: Decimal::percent(1),
         };
         let voting_period = Duration::Time(2000000);
-        let dao_addr = setup_test_case(&mut app, threshold, voting_period, init_funds, None);
+        let dao_addr = setup_test_case(&mut app, threshold, voting_period, init_funds, false, None);
 
         // create proposal with 0 vote power
         let proposal = pay_somebody_proposal();
@@ -702,7 +735,7 @@ mod tests {
             quorum: Decimal::percent(1),
         };
         let voting_period = Duration::Time(2000000);
-        let dao_addr = setup_test_case(&mut app, threshold, voting_period, init_funds, None);
+        let dao_addr = setup_test_case(&mut app, threshold, voting_period, init_funds, false, None);
 
         // ensure we have cash to cover the proposal
         let contract_bal = app.wrap().query_balance(&dao_addr, "BTC").unwrap();
@@ -802,6 +835,7 @@ mod tests {
             threshold,
             voting_period,
             init_funds,
+            false,
             Some(crate::state::Executor::Member), // set executor as Member of voting group
         );
 
@@ -857,6 +891,7 @@ mod tests {
             threshold,
             voting_period,
             init_funds,
+            false,
             Some(crate::state::Executor::Only(Addr::unchecked(VOTER3))), // only VOTER3 can execute proposal
         );
 
@@ -922,6 +957,7 @@ mod tests {
             threshold,
             Duration::Time(voting_period),
             init_funds,
+            false,
             None,
         );
 
@@ -998,7 +1034,7 @@ mod tests {
             quorum: Decimal::percent(1),
         };
         let voting_period = Duration::Height(2000000);
-        let dao_addr = setup_test_case(&mut app, threshold, voting_period, init_funds, None);
+        let dao_addr = setup_test_case(&mut app, threshold, voting_period, init_funds, false, None);
 
         // create proposal with 0 vote power
         let proposal = pay_somebody_proposal();
@@ -1047,7 +1083,8 @@ mod tests {
 
         let required_weight = 4;
         let voting_period = Duration::Time(20000);
-        let dao_addr = setup_test_case_fixed(&mut app, required_weight, voting_period, init_funds);
+        let dao_addr =
+            setup_test_case_fixed(&mut app, required_weight, voting_period, init_funds, true);
 
         let res: GroupResponse = app
             .wrap()
@@ -1112,6 +1149,9 @@ mod tests {
         };
         app.execute_contract(Addr::unchecked(VOTER4), dao_addr.clone(), &yes_vote, &[])
             .unwrap();
+
+        // TODO: group cannot update its members without changing the admin to the caller
+
         let execution = ExecuteMsg::Execute {
             proposal_id: update_proposal_id,
         };
@@ -1160,7 +1200,7 @@ mod tests {
             quorum: Decimal::percent(1),
         };
         let voting_period = Duration::Time(20000);
-        let dao_addr = setup_test_case(&mut app, threshold, voting_period, init_funds, None);
+        let dao_addr = setup_test_case(&mut app, threshold, voting_period, init_funds, true, None);
 
         // VOTER3 starts a proposal to send some tokens (3/12 votes)
         let proposal = pay_somebody_proposal();
@@ -1274,6 +1314,7 @@ mod tests {
             },
             voting_period,
             init_funds,
+            true,
             None,
         );
 
@@ -1379,6 +1420,7 @@ mod tests {
             },
             voting_period,
             init_funds,
+            false,
             None,
         );
 
@@ -1481,7 +1523,7 @@ mod tests {
             quorum: Decimal::percent(1),
         };
         let voting_period = Duration::Time(2000000);
-        let dao_addr = setup_test_case(&mut app, threshold, voting_period, init_funds, None);
+        let dao_addr = setup_test_case(&mut app, threshold, voting_period, init_funds, false, None);
 
         // ensure we have cash to cover the proposal
         let contract_bal = app.wrap().query_balance(&dao_addr, "BTC").unwrap();
@@ -1553,7 +1595,7 @@ mod tests {
             quorum: Decimal::percent(1),
         };
         let voting_period = Duration::Time(2000000);
-        let dao_addr = setup_test_case(&mut app, threshold, voting_period, vec![], None);
+        let dao_addr = setup_test_case(&mut app, threshold, voting_period, vec![], false, None);
 
         // transfer NFT from collection to DAO
         let transfer_msg: Cw721ExecuteMsg<Extension, Extension> = Cw721ExecuteMsg::TransferNft {

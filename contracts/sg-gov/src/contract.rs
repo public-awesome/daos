@@ -45,10 +45,10 @@ pub fn instantiate(
     CONFIG.save(deps.storage, &cfg)?;
 
     match msg.group {
-        Group::ContractInfo(group) => Ok(Response::default().add_submessage(
-            SubMsg::reply_on_success(group.into_wasm_msg(self_addr), INIT_GROUP_REPLY_ID),
+        Group::Cw4Instantiate(init) => Ok(Response::default().add_submessage(
+            SubMsg::reply_on_success(init.into_wasm_msg(self_addr), INIT_GROUP_REPLY_ID),
         )),
-        Group::Address(addr) => {
+        Group::Cw4Address(addr) => {
             GROUP.save(deps.storage, &Cw4Contract(deps.api.addr_validate(&addr)?))?;
             Ok(Response::default())
         }

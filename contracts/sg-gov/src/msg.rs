@@ -9,23 +9,23 @@ use crate::state::Executor;
 #[cw_serde]
 pub enum Admin {
     Address { addr: String },
-    Instantiator {},
+    Creator {},
 }
 
 #[cw_serde]
-pub struct ContractInstantiateInfo {
+pub struct Cw4Instantiate {
     pub code_id: u64,
     pub msg: Binary,
     pub admin: Option<Admin>,
     pub label: String,
 }
 
-impl ContractInstantiateInfo {
-    pub fn into_wasm_msg(self, instantiator: Addr) -> WasmMsg {
+impl Cw4Instantiate {
+    pub fn into_wasm_msg(self, creator: Addr) -> WasmMsg {
         WasmMsg::Instantiate {
             admin: self.admin.map(|admin| match admin {
                 Admin::Address { addr } => addr,
-                Admin::Instantiator {} => instantiator.into_string(),
+                Admin::Creator {} => creator.into_string(),
             }),
             code_id: self.code_id,
             msg: self.msg,
@@ -37,8 +37,8 @@ impl ContractInstantiateInfo {
 
 #[cw_serde]
 pub enum Group {
-    ContractInfo(ContractInstantiateInfo),
-    Address(String),
+    Cw4Instantiate(Cw4Instantiate),
+    Cw4Address(String),
 }
 
 #[cw_serde]
