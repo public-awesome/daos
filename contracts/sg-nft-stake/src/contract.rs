@@ -1,8 +1,8 @@
 #[cfg(not(feature = "library"))]
 use cosmwasm_std::entry_point;
 use cosmwasm_std::{
-    coins, from_slice, to_binary, Addr, BankMsg, Binary, Deps, DepsMut, Env, MessageInfo, Order,
-    Response, StdResult, Storage, SubMsg, Uint128, WasmMsg,
+    coins, from_slice, to_binary, Addr, BankMsg, Binary, CosmosMsg, Deps, DepsMut, Empty, Env,
+    MessageInfo, Order, Response, StdResult, Storage, SubMsg, Uint128, WasmMsg,
 };
 
 use cw2::set_contract_version;
@@ -12,12 +12,16 @@ use cw4::{
     TotalWeightResponse,
 };
 use cw721::Cw721ReceiveMsg;
+use cw721_base::{
+    ExecuteMsg as Cw721BaseExecuteMsg, InstantiateMsg as Cw721BaseInstantiateMsg,
+    MintMsg as Cw721BaseMintMsg,
+};
 use cw_storage_plus::Bound;
 use cw_utils::{maybe_addr, NativeBalance};
 
 use crate::error::ContractError;
 use crate::msg::{ExecuteMsg, InstantiateMsg, QueryMsg, ReceiveMsg, StakedResponse};
-use crate::state::{Config, ADMIN, CLAIMS, CONFIG, HOOKS, MEMBERS, STAKE, TOTAL};
+use crate::state::{Config, ADMIN, CLAIMS, COLLECTION, CONFIG, HOOKS, MEMBERS, STAKE, TOTAL};
 
 // version info for migration info
 const CONTRACT_NAME: &str = "crates.io:cw4-stake";
@@ -85,9 +89,51 @@ pub fn execute_receive_nft(
     info: MessageInfo,
     wrapper: Cw721ReceiveMsg,
 ) -> Result<Response, ContractError> {
-    let config = CONFIG.load(deps.storage)?;
+    let collection = CONFIG.load(deps.storage)?.collection;
+    if info.sender != collection {
+        return Err(ContractError::InvalidCollection {
+            received: info.sender,
+            expected: collection,
+        });
+    }
 
-    Ok(Response::new())
+    let staker = deps.api.addr_validate(&wrapper.sender)?;
+    let height = env.block.height;
+
+    _update_membership(deps.storage, staker, height)?;
+
+    Ok(Response::new()
+        .add_attribute("action", "receive_nft")
+        .add_submessage(stake_nft(deps.storage, &wrapper.token_id, &wrapper.sender)?)
+        .add_attribute("from", wrapper.sender)
+        .add_attribute("token_id", wrapper.token_id))
+}
+
+fn _update_membership(store: &mut dyn Storage, staker: Addr, height: u64) -> StdResult<()> {
+    MEMBERS.update(store, &staker, height, |old_weight| -> StdResult<_> {
+        Ok(old_weight.unwrap_or_default() + 1)
+    })?;
+    TOTAL.update(store, |old_total| -> StdResult<_> { Ok(old_total + 1) })?;
+
+    Ok(())
+}
+
+fn stake_nft(store: &dyn Storage, token_id: &str, owner: &str) -> StdResult<SubMsg> {
+    let mint_msg = Cw721BaseMintMsg::<Empty> {
+        token_id: token_id.to_string(),
+        owner: owner.to_string(),
+        token_uri: None,
+        extension: Empty {},
+    };
+    let msg = Cw721BaseExecuteMsg::Mint::<Empty, Empty>(mint_msg);
+
+    let msg = WasmMsg::Execute {
+        contract_addr: COLLECTION.load(store)?.to_string(),
+        msg: to_binary(&msg)?,
+        funds: vec![],
+    };
+
+    Ok(SubMsg::new(msg))
 }
 
 pub fn execute_bond(

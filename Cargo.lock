@@ -818,6 +818,7 @@ dependencies = [
  "cw20",
  "cw4",
  "cw721",
+ "cw721-base",
  "schemars",
  "serde",
  "thiserror",

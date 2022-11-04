@@ -32,6 +32,7 @@ cw2 = { workspace = true }
 cw4 = { workspace = true }
 cw20 = { workspace = true }
 cw721 = { workspace = true }
+cw721-base = { version = "0.16.0", features = ["library"] }
 cw-controllers = { workspace = true }
 cw-storage-plus = { workspace = true }
 schemars = { workspace = true}

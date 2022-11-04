@@ -1,4 +1,4 @@
-use cosmwasm_std::StdError;
+use cosmwasm_std::{Addr, StdError};
 use thiserror::Error;
 
 use cw_controllers::{AdminError, HookError};
@@ -37,4 +37,7 @@ pub enum ContractError {
 
     #[error("No data in ReceiveMsg")]
     NoData {},
+
+    #[error("Invalid collection")]
+    InvalidCollection { received: Addr, expected: Addr },
 }
