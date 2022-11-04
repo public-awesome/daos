@@ -1,14 +1,13 @@
+use cosmwasm_schema::cw_serde;
 use cosmwasm_std::{Addr, QuerierWrapper, Storage};
 use cw3_flex_multisig::state::Executor;
 use cw4::Cw4Contract;
 use cw_storage_plus::Item;
 use cw_utils::{Duration, Threshold};
-use schemars::JsonSchema;
-use serde::{Deserialize, Serialize};
 
 use crate::ContractError;
 
-#[derive(Serialize, Deserialize, Clone, PartialEq, JsonSchema, Debug)]
+#[cw_serde]
 pub struct Config {
     pub threshold: Threshold,
     pub max_voting_period: Duration,

@@ -44,26 +44,27 @@ optimize = """docker run --rm -v "$(pwd)":/code \
 """
 
 [dependencies]
-serde = { version = "1.0.137", default-features = false, features = ["derive"] }
-thiserror = { version = "1.0.31" }
-schemars = "0.8.8"
-cosmwasm-std = "1.0.0"
-cosmwasm-storage = "1.0.0"
-cw-storage-plus = "0.14.0"
-cw-utils = "0.14.0"
-cw2 = "0.14.0"
-cw3 = "0.14.0"
-cw3-fixed-multisig = { version = "0.14.0", features = ["library"] }
-cw3-flex-multisig = { version = "0.14.0", features = ["library"] }
-cw4 = "0.14.0"
-cw4-group = { version = "0.14.0", features = ["library"] }
+cosmwasm-schema = { workspace = true }
+cosmwasm-std = { workspace = true }
+cosmwasm-storage = "1.1.5"
+cw-storage-plus = { workspace = true }
+cw-utils = { workspace = true }
+cw2 = { workspace = true }
+cw3 = "0.16.0"
+cw3-fixed-multisig = { version = "0.16.0", features = ["library"] }
+cw3-flex-multisig = { version = "0.16.0", features = ["library"] }
+cw4 = "0.16.0"
+cw4-group = { version = "0.16.0", features = ["library"] }
+schemars = { workspace = true}
+serde = { workspace = true }
+thiserror = { workspace = true }
+
 
 [dev-dependencies]
-cosmwasm-schema = "1.0.0"
-cw-multi-test = "0.14.0"
-cw4-group = "0.14.0"
-cw721 = "0.13.4"
-# cw721-base = { version = "0.13.4", features = ["library"] }
-cw721-base = { git = "https://github.com/CosmWasm/cw-nfts", features = [
-  "library",
-] }
+cw-multi-test = "0.16.0"
+cw4-group = "0.16.0"
+cw721 = "0.16.0"
+cw721-base = { version = "0.16.0", features = ["library"] }
+# cw721-base = { git = "https://github.com/CosmWasm/cw-nfts", features = [
+#   "library",
+# ] }
