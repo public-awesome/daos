@@ -15,6 +15,7 @@ pub struct Config {
     pub tokens_per_weight: Uint128,
     pub min_bond: Uint128,
     pub unbonding_period: Duration,
+    pub collection: Addr,
 }
 
 pub const ADMIN: Admin = Admin::new("admin");
@@ -30,3 +31,5 @@ pub const MEMBERS: SnapshotMap<&Addr, u64> = SnapshotMap::new(
 );
 
 pub const STAKE: Map<&Addr, Uint128> = Map::new("stake");
+
+pub const COLLECTION: Item<Addr> = Item::new("collection");

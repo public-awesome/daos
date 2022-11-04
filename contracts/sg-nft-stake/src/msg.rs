@@ -2,6 +2,7 @@ use cosmwasm_schema::{cw_serde, QueryResponses};
 use cosmwasm_std::Uint128;
 
 use cw20::{Cw20ReceiveMsg, Denom};
+use cw721::Cw721ReceiveMsg;
 pub use cw_controllers::ClaimsResponse;
 use cw_utils::Duration;
 
@@ -12,6 +13,9 @@ pub struct InstantiateMsg {
     pub tokens_per_weight: Uint128,
     pub min_bond: Uint128,
     pub unbonding_period: Duration,
+
+    /// The collection used for membership
+    pub collection: String,
 
     // admin can only add/remove hooks, not change other parameters
     pub admin: Option<String>,
@@ -38,6 +42,8 @@ pub enum ExecuteMsg {
 
     /// This accepts a properly-encoded ReceiveMsg from a cw20 contract
     Receive(Cw20ReceiveMsg),
+    /// Receive NFT to stake
+    ReceiveNft(Cw721ReceiveMsg),
 }
 
 #[cw_serde]

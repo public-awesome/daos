@@ -11,6 +11,7 @@ use cw4::{
     Member, MemberChangedHookMsg, MemberDiff, MemberListResponse, MemberResponse,
     TotalWeightResponse,
 };
+use cw721::Cw721ReceiveMsg;
 use cw_storage_plus::Bound;
 use cw_utils::{maybe_addr, NativeBalance};
 
@@ -43,6 +44,7 @@ pub fn instantiate(
         tokens_per_weight: msg.tokens_per_weight,
         min_bond,
         unbonding_period: msg.unbonding_period,
+        collection: api.addr_validate(&msg.collection)?,
     };
     CONFIG.save(deps.storage, &config)?;
     TOTAL.save(deps.storage, &0)?;
@@ -73,7 +75,19 @@ pub fn execute(
         ExecuteMsg::Unbond { tokens: amount } => execute_unbond(deps, env, info, amount),
         ExecuteMsg::Claim {} => execute_claim(deps, env, info),
         ExecuteMsg::Receive(msg) => execute_receive(deps, env, info, msg),
+        ExecuteMsg::ReceiveNft(msg) => execute_receive_nft(deps, env, info, msg),
     }
+}
+
+pub fn execute_receive_nft(
+    deps: DepsMut,
+    env: Env,
+    info: MessageInfo,
+    wrapper: Cw721ReceiveMsg,
+) -> Result<Response, ContractError> {
+    let config = CONFIG.load(deps.storage)?;
+
+    Ok(Response::new())
 }
 
 pub fn execute_bond(
@@ -379,6 +393,7 @@ mod tests {
     const MIN_BOND: Uint128 = Uint128::new(5_000);
     const UNBONDING_BLOCKS: u64 = 100;
     const CW20_ADDRESS: &str = "wasm1234567890";
+    const CW721_ADDRESS: &str = "wasm1234567890";
 
     fn default_instantiate(deps: DepsMut) {
         do_instantiate(
@@ -386,6 +401,7 @@ mod tests {
             TOKENS_PER_WEIGHT,
             MIN_BOND,
             Duration::Height(UNBONDING_BLOCKS),
+            CW721_ADDRESS,
         )
     }
 
@@ -394,12 +410,14 @@ mod tests {
         tokens_per_weight: Uint128,
         min_bond: Uint128,
         unbonding_period: Duration,
+        collection: &str,
     ) {
         let msg = InstantiateMsg {
             denom: Denom::Native("stake".to_string()),
             tokens_per_weight,
             min_bond,
             unbonding_period,
+            collection: collection.to_string(),
             admin: Some(INIT_ADMIN.into()),
         };
         let info = mock_info("creator", &[]);
@@ -412,6 +430,7 @@ mod tests {
             tokens_per_weight: TOKENS_PER_WEIGHT,
             min_bond: MIN_BOND,
             unbonding_period,
+            collection: "collection".to_string(),
             admin: Some(INIT_ADMIN.into()),
         };
         let info = mock_info("creator", &[]);
@@ -1001,6 +1020,7 @@ mod tests {
             Uint128::new(100),
             Uint128::zero(),
             Duration::Height(5),
+            CW721_ADDRESS,
         );
 
         // setting 50 tokens, gives us Some(0) weight
