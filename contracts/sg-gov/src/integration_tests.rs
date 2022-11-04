@@ -2,7 +2,7 @@
 mod tests {
     use crate::{
         contract::{CONTRACT_NAME, CONTRACT_VERSION},
-        msg::{ExecuteMsg, GroupResponse, InstantiateMsg, QueryMsg},
+        msg::{ExecuteMsg, Group, GroupResponse, InstantiateMsg, QueryMsg},
         ContractError,
     };
     use cosmwasm_std::{
@@ -99,7 +99,7 @@ mod tests {
         let group_id = app.store_code(contract_group());
 
         let msg = InstantiateMsg {
-            group_code_id: group_id,
+            group: Group::CodeId(group_id),
             members: members(),
             threshold,
             max_voting_period,
@@ -176,7 +176,7 @@ mod tests {
 
         // make a simple group
         let nft_dao_id = app.store_code(contract_nft_dao());
-        let group_code_id = app.store_code(contract_group());
+        let group_id = app.store_code(contract_group());
 
         let members = vec![member(OWNER, 1)];
 
@@ -184,7 +184,7 @@ mod tests {
 
         // Zero required weight fails
         let instantiate_msg = InstantiateMsg {
-            group_code_id,
+            group: Group::CodeId(group_id),
             members: members.clone(),
             threshold: Threshold::ThresholdQuorum {
                 threshold: Decimal::zero(),
@@ -210,7 +210,7 @@ mod tests {
 
         // Total weight less than required weight not allowed
         let instantiate_msg = InstantiateMsg {
-            group_code_id,
+            group: Group::CodeId(group_id),
             members: members.clone(),
             threshold: Threshold::AbsoluteCount { weight: 100 },
             max_voting_period,
@@ -233,7 +233,7 @@ mod tests {
 
         // All valid
         let instantiate_msg = InstantiateMsg {
-            group_code_id,
+            group: Group::CodeId(group_id),
             members,
             threshold: Threshold::AbsoluteCount { weight: 1 },
             max_voting_period,

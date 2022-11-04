@@ -7,9 +7,15 @@ use cw_utils::{Duration, Expiration, Threshold};
 use crate::state::Executor;
 
 #[cw_serde]
+pub enum Group {
+    CodeId(u64),
+    Contract(String),
+}
+
+#[cw_serde]
 pub struct InstantiateMsg {
     /// this is the code id for the group contract that contains the member list
-    pub group_code_id: u64,
+    pub group: Group,
     pub members: Vec<Member>,
     pub threshold: Threshold,
     pub max_voting_period: Duration,

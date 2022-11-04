@@ -18,7 +18,7 @@ use cw_storage_plus::Bound;
 use cw_utils::{maybe_addr, parse_reply_instantiate_data, Expiration, ThresholdResponse};
 
 use crate::error::ContractError;
-use crate::msg::{ExecuteMsg, GroupResponse, InstantiateMsg, QueryMsg};
+use crate::msg::{ExecuteMsg, Group, GroupResponse, InstantiateMsg, QueryMsg};
 use crate::state::{Config, CONFIG, GROUP};
 
 // version info for migration info
@@ -45,21 +45,27 @@ pub fn instantiate(
     };
     CONFIG.save(deps.storage, &cfg)?;
 
-    // Create a group with this DAO as the admin
-    let init_msg = Cw4GroupInstantiateMsg {
-        admin: Some(dao_addr.to_string()),
-        members: msg.members,
-    };
-    let wasm_msg = WasmMsg::Instantiate {
-        admin: Some(dao_addr.to_string()),
-        code_id: msg.group_code_id,
-        msg: to_binary(&init_msg)?,
-        funds: vec![],
-        label: "DAO-group".to_string(),
-    };
-    let submsg = SubMsg::reply_on_success(wasm_msg, INIT_GROUP_REPLY_ID);
-
-    Ok(Response::default().add_submessage(submsg))
+    match msg.group {
+        Group::CodeId(code_id) => {
+            let init_msg = Cw4GroupInstantiateMsg {
+                admin: Some(dao_addr.to_string()),
+                members: msg.members,
+            };
+            let wasm_msg = WasmMsg::Instantiate {
+                admin: Some(dao_addr.to_string()),
+                code_id,
+                msg: to_binary(&init_msg)?,
+                funds: vec![],
+                label: "DAO-group".to_string(),
+            };
+            let submsg = SubMsg::reply_on_success(wasm_msg, INIT_GROUP_REPLY_ID);
+            Ok(Response::default().add_submessage(submsg))
+        }
+        Group::Contract(addr) => {
+            GROUP.save(deps.storage, &Cw4Contract(deps.api.addr_validate(&addr)?))?;
+            Ok(Response::default())
+        }
+    }
 }
 
 #[cfg_attr(not(feature = "library"), entry_point)]
@@ -92,9 +98,6 @@ pub fn execute(
     }
 }
 
-/// NOTE for frontend:
-/// 1. call UpdateMembers{} on the group if its an NFT group before calling this
-/// 2. create the proposal...
 pub fn execute_propose(
     deps: DepsMut,
     env: Env,
