@@ -161,6 +161,7 @@ fn remove_member_weight(
     Ok(msgs)
 }
 
+/// To the join the group, the sent NFT is minted into the internal collection.
 fn join(store: &dyn Storage, token_id: &str, owner: &str) -> StdResult<SubMsg> {
     let mint_msg = Cw721BaseMintMsg::<Empty> {
         token_id: token_id.to_string(),

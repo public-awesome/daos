@@ -70,6 +70,8 @@ mod tests {
         Box::new(contract)
     }
 
+    // TODO: also test with sg-nft-group
+
     pub fn contract_cw721() -> Box<dyn Contract<Empty>> {
         let contract = ContractWrapper::new(
             cw721_base::entry::execute,
