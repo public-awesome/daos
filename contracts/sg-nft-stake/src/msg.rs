@@ -1,5 +1,4 @@
 use cosmwasm_schema::{cw_serde, QueryResponses};
-use cosmwasm_std::Uint128;
 
 use cw721::Cw721ReceiveMsg;
 pub use cw_controllers::ClaimsResponse;
@@ -14,8 +13,8 @@ pub struct InstantiateMsg {
 
 #[cw_serde]
 pub enum ExecuteMsg {
-    /// Unstake your NFT from the DAO
-    Unbond { token_id: String },
+    /// Exit stage left from the DAO
+    Exit { token_id: String },
     /// Change the admin
     UpdateAdmin { admin: Option<String> },
     /// Add a new hook to be informed of all membership changes. Must be called by Admin
@@ -29,9 +28,8 @@ pub enum ExecuteMsg {
 #[cw_serde]
 #[derive(QueryResponses)]
 pub enum QueryMsg {
-    // Show the number of tokens currently staked by this address
-    #[returns(StakedResponse)]
-    Staked { address: String },
+    #[returns(String)]
+    Collection {},
 
     #[returns(cw_controllers::AdminResponse)]
     Admin {},

@@ -20,7 +20,7 @@ use crate::msg::{ExecuteMsg, InstantiateMsg, QueryMsg, StakedResponse};
 use crate::state::{Config, ADMIN, COLLECTION, CONFIG, HOOKS, MEMBERS, TOTAL};
 
 // version info for migration info
-const CONTRACT_NAME: &str = "crates.io:cw4-stake";
+const CONTRACT_NAME: &str = "crates.io:sg-nft-stake";
 const CONTRACT_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 // Note, you can use StdResult in some functions where you do not
@@ -64,7 +64,7 @@ pub fn execute(
         ExecuteMsg::RemoveHook { addr } => {
             Ok(HOOKS.execute_remove_hook(&ADMIN, deps, info, api.addr_validate(&addr)?)?)
         }
-        ExecuteMsg::Unbond { token_id } => execute_unbond(deps, env, info, token_id),
+        ExecuteMsg::Exit { token_id } => execute_exit(deps, env, info, token_id),
         ExecuteMsg::ReceiveNft(msg) => execute_receive_nft(deps, env, info, msg),
     }
 }
@@ -86,13 +86,13 @@ pub fn execute_receive_nft(
     let staker = deps.api.addr_validate(&wrapper.sender)?;
     let height = env.block.height;
 
-    let hook_msgs = update_membership(deps.storage, staker, height)?;
-    let stake_msg = stake_nft(deps.storage, &wrapper.token_id, &wrapper.sender)?;
+    let hook_msg = update_membership(deps.storage, staker, height)?;
+    let join_msg = join(deps.storage, &wrapper.token_id, &wrapper.sender)?;
 
     Ok(Response::new()
         .add_attribute("action", "receive_nft")
-        .add_submessages(hook_msgs)
-        .add_submessage(stake_msg)
+        .add_submessages(hook_msg)
+        .add_submessage(join_msg)
         .add_attribute("from", wrapper.sender)
         .add_attribute("token_id", wrapper.token_id))
 }
@@ -118,7 +118,7 @@ fn update_membership(store: &mut dyn Storage, staker: Addr, height: u64) -> StdR
     Ok(msgs)
 }
 
-fn stake_nft(store: &dyn Storage, token_id: &str, owner: &str) -> StdResult<SubMsg> {
+fn join(store: &dyn Storage, token_id: &str, owner: &str) -> StdResult<SubMsg> {
     let mint_msg = Cw721BaseMintMsg::<Empty> {
         token_id: token_id.to_string(),
         owner: owner.to_string(),
@@ -136,7 +136,7 @@ fn stake_nft(store: &dyn Storage, token_id: &str, owner: &str) -> StdResult<SubM
     Ok(SubMsg::new(msg))
 }
 
-pub fn execute_unbond(
+pub fn execute_exit(
     deps: DepsMut,
     env: Env,
     info: MessageInfo,
@@ -182,7 +182,7 @@ pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
             to_binary(&list_members(deps, start_after, limit)?)
         }
         QueryMsg::TotalWeight {} => to_binary(&query_total_weight(deps)?),
-        QueryMsg::Staked { address } => to_binary(&query_staked(deps, address)?),
+        QueryMsg::Collection {} => to_binary(&query_collection(deps)?),
         QueryMsg::Admin {} => to_binary(&ADMIN.query_admin(deps)?),
         QueryMsg::Hooks {} => to_binary(&HOOKS.query_hooks(deps)?),
     }
@@ -193,11 +193,8 @@ fn query_total_weight(deps: Deps) -> StdResult<TotalWeightResponse> {
     Ok(TotalWeightResponse { weight })
 }
 
-pub fn query_staked(deps: Deps, addr: String) -> StdResult<StakedResponse> {
-    let addr = deps.api.addr_validate(&addr)?;
-    let stake = STAKE.may_load(deps.storage, &addr)?.unwrap_or_default();
-    let denom = CONFIG.load(deps.storage)?.denom;
-    Ok(StakedResponse { stake, denom })
+pub fn query_collection(deps: Deps) -> StdResult<String> {
+    Ok(CONFIG.load(deps.storage)?.collection.to_string())
 }
 
 fn query_member(deps: Deps, addr: String, height: Option<u64>) -> StdResult<MemberResponse> {
@@ -242,9 +239,8 @@ mod tests {
     use cosmwasm_std::{
         coin, from_slice, CosmosMsg, OverflowError, OverflowOperation, StdError, Storage,
     };
-    use cw20::Denom;
     use cw4::{member_key, TOTAL_KEY};
-    use cw_controllers::{AdminError, Claim, HookError};
+    use cw_controllers::{AdminError, HookError};
     use cw_utils::Duration;
 
     use crate::error::ContractError;
@@ -255,11 +251,6 @@ mod tests {
     const USER1: &str = "somebody";
     const USER2: &str = "else";
     const USER3: &str = "funny";
-    const DENOM: &str = "stake";
-    const TOKENS_PER_WEIGHT: Uint128 = Uint128::new(1_000);
-    const MIN_BOND: Uint128 = Uint128::new(5_000);
-    const UNBONDING_BLOCKS: u64 = 100;
-    const CW20_ADDRESS: &str = "wasm1234567890";
     const CW721_ADDRESS: &str = "wasm1234567890";
 
     fn default_instantiate(deps: DepsMut) {
@@ -293,7 +284,7 @@ mod tests {
 
         for (addr, stake) in &[(USER1, user1), (USER2, user2), (USER3, user3)] {
             if *stake != 0 {
-                let msg = ExecuteMsg::Unbond {
+                let msg = ExecuteMsg::Exit {
                     tokens: Uint128::new(*stake),
                 };
                 let info = mock_info(addr, &[]);
@@ -429,7 +420,7 @@ mod tests {
         assert_users(deps.as_ref(), Some(8), Some(5), Some(5), Some(height + 4)); // after second bond
 
         // error if try to unbond more than stake (USER2 has 5000 staked)
-        let msg = ExecuteMsg::Unbond {
+        let msg = ExecuteMsg::Exit {
             tokens: Uint128::new(5100),
         };
         let mut env = mock_env();
@@ -592,7 +583,7 @@ mod tests {
         assert_eq!(res.messages, vec![msg1, msg2]);
 
         // check firing on unbond
-        let msg = ExecuteMsg::Unbond {
+        let msg = ExecuteMsg::Exit {
             tokens: Uint128::new(7_300),
         };
         let info = mock_info(USER1, &[]);
