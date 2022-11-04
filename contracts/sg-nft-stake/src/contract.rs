@@ -1,8 +1,8 @@
 #[cfg(not(feature = "library"))]
 use cosmwasm_std::entry_point;
 use cosmwasm_std::{
-    coins, from_slice, to_binary, Addr, BankMsg, Binary, CosmosMsg, Deps, DepsMut, Empty, Env,
-    MessageInfo, Order, Response, StdResult, Storage, SubMsg, Uint128, WasmMsg,
+    coins, from_slice, to_binary, Addr, BankMsg, Binary, Deps, DepsMut, Empty, Env, MessageInfo,
+    Order, Response, StdResult, Storage, SubMsg, Uint128, WasmMsg,
 };
 
 use cw2::set_contract_version;
@@ -12,10 +12,7 @@ use cw4::{
     TotalWeightResponse,
 };
 use cw721::Cw721ReceiveMsg;
-use cw721_base::{
-    ExecuteMsg as Cw721BaseExecuteMsg, InstantiateMsg as Cw721BaseInstantiateMsg,
-    MintMsg as Cw721BaseMintMsg,
-};
+use cw721_base::{ExecuteMsg as Cw721BaseExecuteMsg, MintMsg as Cw721BaseMintMsg};
 use cw_storage_plus::Bound;
 use cw_utils::{maybe_addr, NativeBalance};
 
@@ -100,22 +97,40 @@ pub fn execute_receive_nft(
     let staker = deps.api.addr_validate(&wrapper.sender)?;
     let height = env.block.height;
 
-    _update_membership(deps.storage, staker, height)?;
+    let hook_msgs = _update_membership(deps.storage, staker, height)?;
+    let stake_msg = stake_nft(deps.storage, &wrapper.token_id, &wrapper.sender)?;
 
     Ok(Response::new()
         .add_attribute("action", "receive_nft")
-        .add_submessage(stake_nft(deps.storage, &wrapper.token_id, &wrapper.sender)?)
+        .add_submessages(hook_msgs)
+        .add_submessage(stake_msg)
         .add_attribute("from", wrapper.sender)
         .add_attribute("token_id", wrapper.token_id))
 }
 
-fn _update_membership(store: &mut dyn Storage, staker: Addr, height: u64) -> StdResult<()> {
-    MEMBERS.update(store, &staker, height, |old_weight| -> StdResult<_> {
-        Ok(old_weight.unwrap_or_default() + 1)
-    })?;
-    TOTAL.update(store, |old_total| -> StdResult<_> { Ok(old_total + 1) })?;
+fn _update_membership(
+    store: &mut dyn Storage,
+    staker: Addr,
+    height: u64,
+) -> StdResult<Vec<SubMsg>> {
+    let mut msgs = vec![];
 
-    Ok(())
+    MEMBERS.update(store, &staker, height, |old| -> StdResult<_> {
+        let new = old.unwrap_or_default() + 1;
+
+        // let diff = MemberDiff::new(staker.clone(), old, Some(new));
+        // msgs = HOOKS.prepare_hooks(store, |h| {
+        //     MemberChangedHookMsg::one(diff.clone())
+        //         .into_cosmos_msg(h)
+        //         .map(SubMsg::new)
+        // })?;
+
+        Ok(new)
+    })?;
+
+    TOTAL.update(store, |old| -> StdResult<_> { Ok(old + 1) })?;
+
+    Ok(msgs)
 }
 
 fn stake_nft(store: &dyn Storage, token_id: &str, owner: &str) -> StdResult<SubMsg> {
