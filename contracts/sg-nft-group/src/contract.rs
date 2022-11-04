@@ -23,8 +23,7 @@ use crate::state::{Config, ADMIN, COLLECTION, CONFIG, HOOKS, MEMBERS, TOTAL};
 const CONTRACT_NAME: &str = "crates.io:sg-nft-group";
 const CONTRACT_VERSION: &str = env!("CARGO_PKG_VERSION");
 
-// Note, you can use StdResult in some functions where you do not
-// make use of the custom errors
+// Instantiate a group for the specified collection
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn instantiate(
     mut deps: DepsMut,
@@ -55,6 +54,8 @@ pub fn execute(
 ) -> Result<Response, ContractError> {
     let api = deps.api;
     match msg {
+        ExecuteMsg::ReceiveNft(msg) => execute_receive_nft(deps, env, info, msg),
+        ExecuteMsg::Remove { token_id } => execute_remove(deps, env, info, token_id),
         ExecuteMsg::UpdateAdmin { admin } => {
             Ok(ADMIN.execute_update_admin(deps, info, maybe_addr(api, admin)?)?)
         }
@@ -64,8 +65,6 @@ pub fn execute(
         ExecuteMsg::RemoveHook { addr } => {
             Ok(HOOKS.execute_remove_hook(&ADMIN, deps, info, api.addr_validate(&addr)?)?)
         }
-        ExecuteMsg::Exit { token_id } => execute_exit(deps, env, info, token_id),
-        ExecuteMsg::ReceiveNft(msg) => execute_receive_nft(deps, env, info, msg),
     }
 }
 
@@ -83,10 +82,10 @@ pub fn execute_receive_nft(
         });
     }
 
-    let staker = deps.api.addr_validate(&wrapper.sender)?;
+    let sender = deps.api.addr_validate(&wrapper.sender)?;
     let height = env.block.height;
 
-    let hook_msg = update_membership(deps.storage, staker, height)?;
+    let hook_msg = add_member_weight(deps.storage, sender, height)?;
     let join_msg = join(deps.storage, &wrapper.token_id, &wrapper.sender)?;
 
     Ok(Response::new()
@@ -97,10 +96,29 @@ pub fn execute_receive_nft(
         .add_attribute("token_id", wrapper.token_id))
 }
 
-fn update_membership(store: &mut dyn Storage, staker: Addr, height: u64) -> StdResult<Vec<SubMsg>> {
+pub fn execute_remove(
+    deps: DepsMut,
+    env: Env,
+    info: MessageInfo,
+    token_id: String,
+) -> Result<Response, ContractError> {
+    let member = info.sender;
+    // TODO: verify member is the owner of the NFT
+
+    let remove_msgs = remove_member_weight(deps.storage, member.clone(), env.block.height)?;
+    let leave_msgs = leave(deps.storage, &token_id, member.as_ref())?;
+
+    Ok(Response::new()
+        .add_submessages(remove_msgs)
+        .add_submessages(leave_msgs)
+        .add_attribute("action", "exit")
+        .add_attribute("sender", member))
+}
+
+fn add_member_weight(store: &mut dyn Storage, member: Addr, height: u64) -> StdResult<Vec<SubMsg>> {
     let mut msgs = vec![];
 
-    MEMBERS.update(store, &staker, height, |old| -> StdResult<_> {
+    MEMBERS.update(store, &member, height, |old| -> StdResult<_> {
         let new = old.unwrap_or_default() + 1;
 
         // let diff = MemberDiff::new(staker.clone(), old, Some(new));
@@ -114,6 +132,31 @@ fn update_membership(store: &mut dyn Storage, staker: Addr, height: u64) -> StdR
     })?;
 
     TOTAL.update(store, |old| -> StdResult<_> { Ok(old + 1) })?;
+
+    Ok(msgs)
+}
+
+fn remove_member_weight(
+    store: &mut dyn Storage,
+    member: Addr,
+    height: u64,
+) -> StdResult<Vec<SubMsg>> {
+    let mut msgs = vec![];
+
+    MEMBERS.update(store, &member, height, |old| -> StdResult<_> {
+        let new = old.unwrap_or_default() - 1;
+
+        // let diff = MemberDiff::new(staker.clone(), old, Some(new));
+        // msgs = HOOKS.prepare_hooks(store, |h| {
+        //     MemberChangedHookMsg::one(diff.clone())
+        //         .into_cosmos_msg(h)
+        //         .map(SubMsg::new)
+        // })?;
+
+        Ok(new)
+    })?;
+
+    TOTAL.update(store, |old| -> StdResult<_> { Ok(old - 1) })?;
 
     Ok(msgs)
 }
@@ -136,39 +179,31 @@ fn join(store: &dyn Storage, token_id: &str, owner: &str) -> StdResult<SubMsg> {
     Ok(SubMsg::new(msg))
 }
 
-pub fn execute_exit(
-    deps: DepsMut,
-    env: Env,
-    info: MessageInfo,
-    token_id: String,
-) -> Result<Response, ContractError> {
-    // // reduce the sender's stake - aborting if insufficient
-    // let new_stake = STAKE.update(deps.storage, &info.sender, |stake| -> StdResult<_> {
-    //     Ok(stake.unwrap_or_default().checked_sub(amount)?)
-    // })?;
+/// To leave the group, we have to burn the NFT from the internal collection.
+/// Then we have to transfer it from the collection to the original owner.
+fn leave(store: &dyn Storage, token_id: &str, owner: &str) -> StdResult<Vec<SubMsg>> {
+    let collection = COLLECTION.load(store)?;
 
-    // provide them a claim
-    let cfg = CONFIG.load(deps.storage)?;
-    // CLAIMS.create_claim(
-    //     deps.storage,
-    //     &info.sender,
-    //     amount,
-    //     cfg.unbonding_period.after(&env.block),
-    // )?;
+    let msg = Cw721BaseExecuteMsg::Burn::<Empty, Empty> {
+        token_id: token_id.to_string(),
+    };
+    let burn_msg = WasmMsg::Execute {
+        contract_addr: collection.to_string(),
+        msg: to_binary(&msg)?,
+        funds: vec![],
+    };
 
-    // let messages = update_membership(
-    //     deps.storage,
-    //     info.sender.clone(),
-    //     new_stake,
-    //     &cfg,
-    //     env.block.height,
-    // )?;
+    let msg = Cw721BaseExecuteMsg::TransferNft::<Empty, Empty> {
+        recipient: owner.to_string(),
+        token_id: token_id.to_string(),
+    };
+    let transfer_msg = WasmMsg::Execute {
+        contract_addr: CONFIG.load(store)?.collection.to_string(),
+        msg: to_binary(&msg)?,
+        funds: vec![],
+    };
 
-    Ok(Response::new()
-        // .add_submessages(messages)
-        .add_attribute("action", "unbond")
-        // .add_attribute("amount", amount)
-        .add_attribute("sender", info.sender))
+    Ok(vec![SubMsg::new(burn_msg), SubMsg::new(transfer_msg)])
 }
 
 #[cfg_attr(not(feature = "library"), entry_point)]
@@ -254,22 +289,10 @@ mod tests {
     const CW721_ADDRESS: &str = "wasm1234567890";
 
     fn default_instantiate(deps: DepsMut) {
-        do_instantiate(
-            deps,
-            TOKENS_PER_WEIGHT,
-            MIN_BOND,
-            Duration::Height(UNBONDING_BLOCKS),
-            CW721_ADDRESS,
-        )
+        do_instantiate(deps, CW721_ADDRESS)
     }
 
-    fn do_instantiate(
-        deps: DepsMut,
-        tokens_per_weight: Uint128,
-        min_bond: Uint128,
-        unbonding_period: Duration,
-        collection: &str,
-    ) {
+    fn do_instantiate(deps: DepsMut, collection: &str) {
         let msg = InstantiateMsg {
             collection: collection.to_string(),
             admin: Some(INIT_ADMIN.into()),
@@ -278,20 +301,20 @@ mod tests {
         instantiate(deps, mock_env(), info, msg).unwrap();
     }
 
-    fn unbond(mut deps: DepsMut, user1: u128, user2: u128, user3: u128, height_delta: u64) {
-        let mut env = mock_env();
-        env.block.height += height_delta;
+    // fn unbond(mut deps: DepsMut, user1: u128, user2: u128, user3: u128, height_delta: u64) {
+    //     let mut env = mock_env();
+    //     env.block.height += height_delta;
 
-        for (addr, stake) in &[(USER1, user1), (USER2, user2), (USER3, user3)] {
-            if *stake != 0 {
-                let msg = ExecuteMsg::Exit {
-                    tokens: Uint128::new(*stake),
-                };
-                let info = mock_info(addr, &[]);
-                execute(deps.branch(), env.clone(), info, msg).unwrap();
-            }
-        }
-    }
+    //     for (addr, stake) in &[(USER1, user1), (USER2, user2), (USER3, user3)] {
+    //         if *stake != 0 {
+    //             let msg = ExecuteMsg::Exit {
+    //                 tokens: Uint128::new(*stake),
+    //             };
+    //             let info = mock_info(addr, &[]);
+    //             execute(deps.branch(), env.clone(), info, msg).unwrap();
+    //         }
+    //     }
+    // }
 
     #[test]
     fn proper_instantiation() {
@@ -351,130 +374,102 @@ mod tests {
         }
     }
 
-    // this tests the member queries
-    fn assert_stake(deps: Deps, user1_stake: u128, user2_stake: u128, user3_stake: u128) {
-        let stake1 = query_staked(deps, USER1.into()).unwrap();
-        assert_eq!(stake1.stake, Uint128::from(user1_stake));
+    // #[test]
+    // fn bond_stake_adds_membership() {
+    //     let mut deps = mock_dependencies();
+    //     default_instantiate(deps.as_mut());
+    //     let height = mock_env().block.height;
 
-        let stake2 = query_staked(deps, USER2.into()).unwrap();
-        assert_eq!(stake2.stake, Uint128::from(user2_stake));
+    //     // Assert original weights
+    //     assert_users(deps.as_ref(), None, None, None, None);
 
-        let stake3 = query_staked(deps, USER3.into()).unwrap();
-        assert_eq!(stake3.stake, Uint128::from(user3_stake));
-    }
+    //     // ensure it rounds down, and respects cut-off
+    //     bond(deps.as_mut(), 12_000, 7_500, 4_000, 1);
 
-    #[test]
-    fn bond_stake_adds_membership() {
-        let mut deps = mock_dependencies();
-        default_instantiate(deps.as_mut());
-        let height = mock_env().block.height;
+    //     // Assert updated weights
+    //     assert_stake(deps.as_ref(), 12_000, 7_500, 4_000);
+    //     assert_users(deps.as_ref(), Some(12), Some(7), None, None);
 
-        // Assert original weights
-        assert_users(deps.as_ref(), None, None, None, None);
+    //     // add some more, ensure the sum is properly respected (7.5 + 7.6 = 15 not 14)
+    //     bond(deps.as_mut(), 0, 7_600, 1_200, 2);
 
-        // ensure it rounds down, and respects cut-off
-        bond(deps.as_mut(), 12_000, 7_500, 4_000, 1);
+    //     // Assert updated weights
+    //     assert_stake(deps.as_ref(), 12_000, 15_100, 5_200);
+    //     assert_users(deps.as_ref(), Some(12), Some(15), Some(5), None);
 
-        // Assert updated weights
-        assert_stake(deps.as_ref(), 12_000, 7_500, 4_000);
-        assert_users(deps.as_ref(), Some(12), Some(7), None, None);
+    //     // check historical queries all work
+    //     assert_users(deps.as_ref(), None, None, None, Some(height + 1)); // before first stake
+    //     assert_users(deps.as_ref(), Some(12), Some(7), None, Some(height + 2)); // after first stake
+    //     assert_users(deps.as_ref(), Some(12), Some(15), Some(5), Some(height + 3));
+    //     // after second stake
+    // }
 
-        // add some more, ensure the sum is properly respected (7.5 + 7.6 = 15 not 14)
-        bond(deps.as_mut(), 0, 7_600, 1_200, 2);
+    // #[test]
+    // fn unbond_stake_update_membership() {
+    //     let mut deps = mock_dependencies();
+    //     default_instantiate(deps.as_mut());
+    //     let height = mock_env().block.height;
 
-        // Assert updated weights
-        assert_stake(deps.as_ref(), 12_000, 15_100, 5_200);
-        assert_users(deps.as_ref(), Some(12), Some(15), Some(5), None);
+    //     // ensure it rounds down, and respects cut-off
+    //     bond(deps.as_mut(), 12_000, 7_500, 4_000, 1);
+    //     unbond(deps.as_mut(), 4_500, 2_600, 1_111, 2);
 
-        // check historical queries all work
-        assert_users(deps.as_ref(), None, None, None, Some(height + 1)); // before first stake
-        assert_users(deps.as_ref(), Some(12), Some(7), None, Some(height + 2)); // after first stake
-        assert_users(deps.as_ref(), Some(12), Some(15), Some(5), Some(height + 3));
-        // after second stake
-    }
+    //     // Assert updated weights
+    //     assert_stake(deps.as_ref(), 7_500, 4_900, 2_889);
+    //     assert_users(deps.as_ref(), Some(7), None, None, None);
 
-    #[test]
-    fn unbond_stake_update_membership() {
-        let mut deps = mock_dependencies();
-        default_instantiate(deps.as_mut());
-        let height = mock_env().block.height;
+    //     // Adding a little more returns weight
+    //     bond(deps.as_mut(), 600, 100, 2_222, 3);
 
-        // ensure it rounds down, and respects cut-off
-        bond(deps.as_mut(), 12_000, 7_500, 4_000, 1);
-        unbond(deps.as_mut(), 4_500, 2_600, 1_111, 2);
+    //     // Assert updated weights
+    //     assert_users(deps.as_ref(), Some(8), Some(5), Some(5), None);
 
-        // Assert updated weights
-        assert_stake(deps.as_ref(), 7_500, 4_900, 2_889);
-        assert_users(deps.as_ref(), Some(7), None, None, None);
+    //     // check historical queries all work
+    //     assert_users(deps.as_ref(), None, None, None, Some(height + 1)); // before first stake
+    //     assert_users(deps.as_ref(), Some(12), Some(7), None, Some(height + 2)); // after first bond
+    //     assert_users(deps.as_ref(), Some(7), None, None, Some(height + 3)); // after first unbond
+    //     assert_users(deps.as_ref(), Some(8), Some(5), Some(5), Some(height + 4)); // after second bond
 
-        // Adding a little more returns weight
-        bond(deps.as_mut(), 600, 100, 2_222, 3);
+    //     // error if try to unbond more than stake (USER2 has 5000 staked)
+    //     let msg = ExecuteMsg::Exit {
+    //         tokens: Uint128::new(5100),
+    //     };
+    //     let mut env = mock_env();
+    //     env.block.height += 5;
+    //     let info = mock_info(USER2, &[]);
+    //     let err = execute(deps.as_mut(), env, info, msg).unwrap_err();
+    //     assert_eq!(
+    //         err,
+    //         ContractError::Std(StdError::overflow(OverflowError::new(
+    //             OverflowOperation::Sub,
+    //             5000,
+    //             5100
+    //         )))
+    //     );
+    // }
 
-        // Assert updated weights
-        assert_users(deps.as_ref(), Some(8), Some(5), Some(5), None);
+    // #[test]
+    // fn raw_queries_work() {
+    //     // add will over-write and remove have no effect
+    //     let mut deps = mock_dependencies();
+    //     default_instantiate(deps.as_mut());
+    //     // Set values as (11, 6, None)
+    //     bond(deps.as_mut(), 11_000, 6_000, 0, 1);
 
-        // check historical queries all work
-        assert_users(deps.as_ref(), None, None, None, Some(height + 1)); // before first stake
-        assert_users(deps.as_ref(), Some(12), Some(7), None, Some(height + 2)); // after first bond
-        assert_users(deps.as_ref(), Some(7), None, None, Some(height + 3)); // after first unbond
-        assert_users(deps.as_ref(), Some(8), Some(5), Some(5), Some(height + 4)); // after second bond
+    //     // get total from raw key
+    //     let total_raw = deps.storage.get(TOTAL_KEY.as_bytes()).unwrap();
+    //     let total: u64 = from_slice(&total_raw).unwrap();
+    //     assert_eq!(17, total);
 
-        // error if try to unbond more than stake (USER2 has 5000 staked)
-        let msg = ExecuteMsg::Exit {
-            tokens: Uint128::new(5100),
-        };
-        let mut env = mock_env();
-        env.block.height += 5;
-        let info = mock_info(USER2, &[]);
-        let err = execute(deps.as_mut(), env, info, msg).unwrap_err();
-        assert_eq!(
-            err,
-            ContractError::Std(StdError::overflow(OverflowError::new(
-                OverflowOperation::Sub,
-                5000,
-                5100
-            )))
-        );
-    }
+    //     // get member votes from raw key
+    //     let member2_raw = deps.storage.get(&member_key(USER2)).unwrap();
+    //     let member2: u64 = from_slice(&member2_raw).unwrap();
+    //     assert_eq!(6, member2);
 
-    #[test]
-    fn cw20_token_bond() {
-        let mut deps = mock_dependencies();
-        cw20_instantiate(deps.as_mut(), Duration::Height(2000));
-
-        // Assert original weights
-        assert_users(deps.as_ref(), None, None, None, None);
-
-        // ensure it rounds down, and respects cut-off
-        bond_cw20(deps.as_mut(), 12_000, 7_500, 4_000, 1);
-
-        // Assert updated weights
-        assert_stake(deps.as_ref(), 12_000, 7_500, 4_000);
-        assert_users(deps.as_ref(), Some(12), Some(7), None, None);
-    }
-
-    #[test]
-    fn raw_queries_work() {
-        // add will over-write and remove have no effect
-        let mut deps = mock_dependencies();
-        default_instantiate(deps.as_mut());
-        // Set values as (11, 6, None)
-        bond(deps.as_mut(), 11_000, 6_000, 0, 1);
-
-        // get total from raw key
-        let total_raw = deps.storage.get(TOTAL_KEY.as_bytes()).unwrap();
-        let total: u64 = from_slice(&total_raw).unwrap();
-        assert_eq!(17, total);
-
-        // get member votes from raw key
-        let member2_raw = deps.storage.get(&member_key(USER2)).unwrap();
-        let member2: u64 = from_slice(&member2_raw).unwrap();
-        assert_eq!(6, member2);
-
-        // and execute misses
-        let member3_raw = deps.storage.get(&member_key(USER3));
-        assert_eq!(None, member3_raw);
-    }
+    //     // and execute misses
+    //     let member3_raw = deps.storage.get(&member_key(USER3));
+    //     assert_eq!(None, member3_raw);
+    // }
 
     #[test]
     fn add_remove_hooks() {
@@ -568,82 +563,34 @@ mod tests {
             let _ = execute(deps.as_mut(), mock_env(), admin_info.clone(), msg).unwrap();
         }
 
-        // check firing on bond
-        assert_users(deps.as_ref(), None, None, None, None);
-        let info = mock_info(USER1, &coins(13_800, DENOM));
-        let res = execute(deps.as_mut(), mock_env(), info, ExecuteMsg::Bond {}).unwrap();
-        assert_users(deps.as_ref(), Some(13), None, None, None);
+        // // check firing on bond
+        // assert_users(deps.as_ref(), None, None, None, None);
+        // let info = mock_info(USER1, &coins(13_800, DENOM));
+        // let res = execute(deps.as_mut(), mock_env(), info, ExecuteMsg::Bond {}).unwrap();
+        // assert_users(deps.as_ref(), Some(13), None, None, None);
 
-        // ensure messages for each of the 2 hooks
-        assert_eq!(res.messages.len(), 2);
-        let diff = MemberDiff::new(USER1, None, Some(13));
-        let hook_msg = MemberChangedHookMsg::one(diff);
-        let msg1 = SubMsg::new(hook_msg.clone().into_cosmos_msg(contract1.clone()).unwrap());
-        let msg2 = SubMsg::new(hook_msg.into_cosmos_msg(contract2.clone()).unwrap());
-        assert_eq!(res.messages, vec![msg1, msg2]);
+        // // ensure messages for each of the 2 hooks
+        // assert_eq!(res.messages.len(), 2);
+        // let diff = MemberDiff::new(USER1, None, Some(13));
+        // let hook_msg = MemberChangedHookMsg::one(diff);
+        // let msg1 = SubMsg::new(hook_msg.clone().into_cosmos_msg(contract1.clone()).unwrap());
+        // let msg2 = SubMsg::new(hook_msg.into_cosmos_msg(contract2.clone()).unwrap());
+        // assert_eq!(res.messages, vec![msg1, msg2]);
 
-        // check firing on unbond
-        let msg = ExecuteMsg::Exit {
-            tokens: Uint128::new(7_300),
-        };
-        let info = mock_info(USER1, &[]);
-        let res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
-        assert_users(deps.as_ref(), Some(6), None, None, None);
+        // // check firing on unbond
+        // let msg = ExecuteMsg::Exit {
+        //     tokens: Uint128::new(7_300),
+        // };
+        // let info = mock_info(USER1, &[]);
+        // let res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
+        // assert_users(deps.as_ref(), Some(6), None, None, None);
 
-        // ensure messages for each of the 2 hooks
-        assert_eq!(res.messages.len(), 2);
-        let diff = MemberDiff::new(USER1, Some(13), Some(6));
-        let hook_msg = MemberChangedHookMsg::one(diff);
-        let msg1 = SubMsg::new(hook_msg.clone().into_cosmos_msg(contract1).unwrap());
-        let msg2 = SubMsg::new(hook_msg.into_cosmos_msg(contract2).unwrap());
-        assert_eq!(res.messages, vec![msg1, msg2]);
-    }
-
-    #[test]
-    fn only_bond_valid_coins() {
-        let mut deps = mock_dependencies();
-        default_instantiate(deps.as_mut());
-
-        // cannot bond with 0 coins
-        let info = mock_info(USER1, &[]);
-        let err = execute(deps.as_mut(), mock_env(), info, ExecuteMsg::Bond {}).unwrap_err();
-        assert_eq!(err, ContractError::NoFunds {});
-
-        // cannot bond with incorrect denom
-        let info = mock_info(USER1, &[coin(500, "FOO")]);
-        let err = execute(deps.as_mut(), mock_env(), info, ExecuteMsg::Bond {}).unwrap_err();
-        assert_eq!(err, ContractError::MissingDenom(DENOM.to_string()));
-
-        // cannot bond with 2 coins (even if one is correct)
-        let info = mock_info(USER1, &[coin(1234, DENOM), coin(5000, "BAR")]);
-        let err = execute(deps.as_mut(), mock_env(), info, ExecuteMsg::Bond {}).unwrap_err();
-        assert_eq!(err, ContractError::ExtraDenoms(DENOM.to_string()));
-
-        // can bond with just the proper denom
-        // cannot bond with incorrect denom
-        let info = mock_info(USER1, &[coin(500, DENOM)]);
-        execute(deps.as_mut(), mock_env(), info, ExecuteMsg::Bond {}).unwrap();
-    }
-
-    #[test]
-    fn ensure_bonding_edge_cases() {
-        // use min_bond 0, tokens_per_weight 500
-        let mut deps = mock_dependencies();
-        do_instantiate(
-            deps.as_mut(),
-            Uint128::new(100),
-            Uint128::zero(),
-            Duration::Height(5),
-            CW721_ADDRESS,
-        );
-
-        // setting 50 tokens, gives us Some(0) weight
-        // even setting to 1 token
-        bond(deps.as_mut(), 50, 1, 102, 1);
-        assert_users(deps.as_ref(), Some(0), Some(0), Some(1), None);
-
-        // reducing to 0 token makes us None even with min_bond 0
-        unbond(deps.as_mut(), 49, 1, 102, 2);
-        assert_users(deps.as_ref(), Some(0), None, None, None);
+        // // ensure messages for each of the 2 hooks
+        // assert_eq!(res.messages.len(), 2);
+        // let diff = MemberDiff::new(USER1, Some(13), Some(6));
+        // let hook_msg = MemberChangedHookMsg::one(diff);
+        // let msg1 = SubMsg::new(hook_msg.clone().into_cosmos_msg(contract1).unwrap());
+        // let msg2 = SubMsg::new(hook_msg.into_cosmos_msg(contract2).unwrap());
+        // assert_eq!(res.messages, vec![msg1, msg2]);
     }
 }

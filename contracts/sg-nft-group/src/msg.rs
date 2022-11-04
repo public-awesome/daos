@@ -13,16 +13,16 @@ pub struct InstantiateMsg {
 
 #[cw_serde]
 pub enum ExecuteMsg {
-    /// Exit stage left from the DAO
-    Exit { token_id: String },
+    /// Receive NFT to join group
+    ReceiveNft(Cw721ReceiveMsg),
+    /// Remove NFT from the group
+    Remove { token_id: String },
     /// Change the admin
     UpdateAdmin { admin: Option<String> },
     /// Add a new hook to be informed of all membership changes. Must be called by Admin
     AddHook { addr: String },
     /// Remove a hook. Must be called by Admin
     RemoveHook { addr: String },
-    /// Receive NFT to stake
-    ReceiveNft(Cw721ReceiveMsg),
 }
 
 #[cw_serde]
@@ -30,7 +30,6 @@ pub enum ExecuteMsg {
 pub enum QueryMsg {
     #[returns(String)]
     Collection {},
-
     #[returns(cw_controllers::AdminResponse)]
     Admin {},
     #[returns(cw4::TotalWeightResponse)]
@@ -48,9 +47,4 @@ pub enum QueryMsg {
     /// Shows all registered hooks.
     #[returns(cw_controllers::HooksResponse)]
     Hooks {},
-}
-
-#[cw_serde]
-pub struct StakedResponse {
-    pub num_tokens: u64,
 }
