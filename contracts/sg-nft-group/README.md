@@ -1,6 +1,6 @@
-# Stargaze NFT Stake Contract
+# Stargaze NFT Group Contract
 
-A contract that does membership based on NFT "staking". Anyone can stake an NFT to the contract to become a member. 1 NFT = 1 vote.
+A contract that does membership based on NFT ownership in a specific collection. Anyone can send an NFT to the contract to become a member. 1 NFT = 1 vote.
 
 This is an implementation of [cw4 spec](../../packages/cw4/README.md).
 
