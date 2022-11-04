@@ -101,8 +101,7 @@ mod tests {
         let group_id = app.store_code(contract_group());
 
         let msg = InstantiateMsg {
-            group: Group::CodeId(group_id),
-            members: members(),
+            group: Group::ContractInfo(group_id),
             threshold,
             max_voting_period,
             executor,
@@ -186,8 +185,7 @@ mod tests {
 
         // Zero required weight fails
         let instantiate_msg = InstantiateMsg {
-            group: Group::CodeId(group_id),
-            members: members.clone(),
+            group: Group::ContractInfo(group_id),
             threshold: Threshold::ThresholdQuorum {
                 threshold: Decimal::zero(),
                 quorum: Decimal::percent(1),
@@ -212,8 +210,7 @@ mod tests {
 
         // Total weight less than required weight not allowed
         let instantiate_msg = InstantiateMsg {
-            group: Group::CodeId(group_id),
-            members: members.clone(),
+            group: Group::ContractInfo(group_id),
             threshold: Threshold::AbsoluteCount { weight: 100 },
             max_voting_period,
             executor: None,
@@ -235,8 +232,7 @@ mod tests {
 
         // All valid
         let instantiate_msg = InstantiateMsg {
-            group: Group::CodeId(group_id),
-            members,
+            group: Group::ContractInfo(group_id),
             threshold: Threshold::AbsoluteCount { weight: 1 },
             max_voting_period,
             executor: None,
