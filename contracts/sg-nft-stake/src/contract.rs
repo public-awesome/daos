@@ -1,12 +1,11 @@
 #[cfg(not(feature = "library"))]
 use cosmwasm_std::entry_point;
 use cosmwasm_std::{
-    coins, from_slice, to_binary, Addr, BankMsg, Binary, Deps, DepsMut, Empty, Env, MessageInfo,
-    Order, Response, StdResult, Storage, SubMsg, Uint128, WasmMsg,
+    to_binary, Addr, Binary, Deps, DepsMut, Empty, Env, MessageInfo, Order, Response, StdResult,
+    Storage, SubMsg, WasmMsg,
 };
 
 use cw2::set_contract_version;
-use cw20::{Balance, Cw20CoinVerified, Cw20ExecuteMsg, Cw20ReceiveMsg, Denom};
 use cw4::{
     Member, MemberChangedHookMsg, MemberDiff, MemberListResponse, MemberResponse,
     TotalWeightResponse,
@@ -14,11 +13,11 @@ use cw4::{
 use cw721::Cw721ReceiveMsg;
 use cw721_base::{ExecuteMsg as Cw721BaseExecuteMsg, MintMsg as Cw721BaseMintMsg};
 use cw_storage_plus::Bound;
-use cw_utils::{maybe_addr, NativeBalance};
+use cw_utils::maybe_addr;
 
 use crate::error::ContractError;
-use crate::msg::{ExecuteMsg, InstantiateMsg, QueryMsg, ReceiveMsg, StakedResponse};
-use crate::state::{Config, ADMIN, CLAIMS, COLLECTION, CONFIG, HOOKS, MEMBERS, STAKE, TOTAL};
+use crate::msg::{ExecuteMsg, InstantiateMsg, QueryMsg, StakedResponse};
+use crate::state::{Config, ADMIN, COLLECTION, CONFIG, HOOKS, MEMBERS, TOTAL};
 
 // version info for migration info
 const CONTRACT_NAME: &str = "crates.io:cw4-stake";
@@ -37,14 +36,7 @@ pub fn instantiate(
     let api = deps.api;
     ADMIN.set(deps.branch(), maybe_addr(api, msg.admin)?)?;
 
-    // min_bond is at least 1, so 0 stake -> non-membership
-    let min_bond = std::cmp::max(msg.min_bond, Uint128::new(1));
-
     let config = Config {
-        denom: msg.denom,
-        tokens_per_weight: msg.tokens_per_weight,
-        min_bond,
-        unbonding_period: msg.unbonding_period,
         collection: api.addr_validate(&msg.collection)?,
     };
     CONFIG.save(deps.storage, &config)?;
@@ -72,10 +64,7 @@ pub fn execute(
         ExecuteMsg::RemoveHook { addr } => {
             Ok(HOOKS.execute_remove_hook(&ADMIN, deps, info, api.addr_validate(&addr)?)?)
         }
-        ExecuteMsg::Bond {} => execute_bond(deps, env, Balance::from(info.funds), info.sender),
-        ExecuteMsg::Unbond { tokens: amount } => execute_unbond(deps, env, info, amount),
-        ExecuteMsg::Claim {} => execute_claim(deps, env, info),
-        ExecuteMsg::Receive(msg) => execute_receive(deps, env, info, msg),
+        ExecuteMsg::Unbond { token_id } => execute_unbond(deps, env, info, token_id),
         ExecuteMsg::ReceiveNft(msg) => execute_receive_nft(deps, env, info, msg),
     }
 }
@@ -97,7 +86,7 @@ pub fn execute_receive_nft(
     let staker = deps.api.addr_validate(&wrapper.sender)?;
     let height = env.block.height;
 
-    let hook_msgs = _update_membership(deps.storage, staker, height)?;
+    let hook_msgs = update_membership(deps.storage, staker, height)?;
     let stake_msg = stake_nft(deps.storage, &wrapper.token_id, &wrapper.sender)?;
 
     Ok(Response::new()
@@ -108,11 +97,7 @@ pub fn execute_receive_nft(
         .add_attribute("token_id", wrapper.token_id))
 }
 
-fn _update_membership(
-    store: &mut dyn Storage,
-    staker: Addr,
-    height: u64,
-) -> StdResult<Vec<SubMsg>> {
+fn update_membership(store: &mut dyn Storage, staker: Addr, height: u64) -> StdResult<Vec<SubMsg>> {
     let mut msgs = vec![];
 
     MEMBERS.update(store, &staker, height, |old| -> StdResult<_> {
@@ -151,215 +136,39 @@ fn stake_nft(store: &dyn Storage, token_id: &str, owner: &str) -> StdResult<SubM
     Ok(SubMsg::new(msg))
 }
 
-pub fn execute_bond(
-    deps: DepsMut,
-    env: Env,
-    amount: Balance,
-    sender: Addr,
-) -> Result<Response, ContractError> {
-    let cfg = CONFIG.load(deps.storage)?;
-
-    // ensure the sent denom was proper
-    // NOTE: those clones are not needed (if we move denom, we return early),
-    // but the compiler cannot see that (yet...)
-    let amount = match (&cfg.denom, &amount) {
-        (Denom::Native(want), Balance::Native(have)) => must_pay_funds(have, want),
-        (Denom::Cw20(want), Balance::Cw20(have)) => {
-            if want == &have.address {
-                Ok(have.amount)
-            } else {
-                Err(ContractError::InvalidDenom(want.into()))
-            }
-        }
-        _ => Err(ContractError::MixedNativeAndCw20(
-            "Invalid address or denom".to_string(),
-        )),
-    }?;
-
-    // update the sender's stake
-    let new_stake = STAKE.update(deps.storage, &sender, |stake| -> StdResult<_> {
-        Ok(stake.unwrap_or_default() + amount)
-    })?;
-
-    let messages = update_membership(
-        deps.storage,
-        sender.clone(),
-        new_stake,
-        &cfg,
-        env.block.height,
-    )?;
-
-    Ok(Response::new()
-        .add_submessages(messages)
-        .add_attribute("action", "bond")
-        .add_attribute("amount", amount)
-        .add_attribute("sender", sender))
-}
-
-pub fn execute_receive(
-    deps: DepsMut,
-    env: Env,
-    info: MessageInfo,
-    wrapper: Cw20ReceiveMsg,
-) -> Result<Response, ContractError> {
-    // info.sender is the address of the cw20 contract (that re-sent this message).
-    // wrapper.sender is the address of the user that requested the cw20 contract to send this.
-    // This cannot be fully trusted (the cw20 contract can fake it), so only use it for actions
-    // in the address's favor (like paying/bonding tokens, not withdrawls)
-    let msg: ReceiveMsg = from_slice(&wrapper.msg)?;
-    let balance = Balance::Cw20(Cw20CoinVerified {
-        address: info.sender,
-        amount: wrapper.amount,
-    });
-    let api = deps.api;
-    match msg {
-        ReceiveMsg::Bond {} => {
-            execute_bond(deps, env, balance, api.addr_validate(&wrapper.sender)?)
-        }
-    }
-}
-
 pub fn execute_unbond(
     deps: DepsMut,
     env: Env,
     info: MessageInfo,
-    amount: Uint128,
+    token_id: String,
 ) -> Result<Response, ContractError> {
-    // reduce the sender's stake - aborting if insufficient
-    let new_stake = STAKE.update(deps.storage, &info.sender, |stake| -> StdResult<_> {
-        Ok(stake.unwrap_or_default().checked_sub(amount)?)
-    })?;
+    // // reduce the sender's stake - aborting if insufficient
+    // let new_stake = STAKE.update(deps.storage, &info.sender, |stake| -> StdResult<_> {
+    //     Ok(stake.unwrap_or_default().checked_sub(amount)?)
+    // })?;
 
     // provide them a claim
     let cfg = CONFIG.load(deps.storage)?;
-    CLAIMS.create_claim(
-        deps.storage,
-        &info.sender,
-        amount,
-        cfg.unbonding_period.after(&env.block),
-    )?;
+    // CLAIMS.create_claim(
+    //     deps.storage,
+    //     &info.sender,
+    //     amount,
+    //     cfg.unbonding_period.after(&env.block),
+    // )?;
 
-    let messages = update_membership(
-        deps.storage,
-        info.sender.clone(),
-        new_stake,
-        &cfg,
-        env.block.height,
-    )?;
+    // let messages = update_membership(
+    //     deps.storage,
+    //     info.sender.clone(),
+    //     new_stake,
+    //     &cfg,
+    //     env.block.height,
+    // )?;
 
     Ok(Response::new()
-        .add_submessages(messages)
+        // .add_submessages(messages)
         .add_attribute("action", "unbond")
-        .add_attribute("amount", amount)
+        // .add_attribute("amount", amount)
         .add_attribute("sender", info.sender))
-}
-
-pub fn must_pay_funds(balance: &NativeBalance, denom: &str) -> Result<Uint128, ContractError> {
-    match balance.0.len() {
-        0 => Err(ContractError::NoFunds {}),
-        1 => {
-            let balance = &balance.0;
-            let payment = balance[0].amount;
-            if balance[0].denom == denom {
-                Ok(payment)
-            } else {
-                Err(ContractError::MissingDenom(denom.to_string()))
-            }
-        }
-        _ => Err(ContractError::ExtraDenoms(denom.to_string())),
-    }
-}
-
-fn update_membership(
-    storage: &mut dyn Storage,
-    sender: Addr,
-    new_stake: Uint128,
-    cfg: &Config,
-    height: u64,
-) -> StdResult<Vec<SubMsg>> {
-    // update their membership weight
-    let new = calc_weight(new_stake, cfg);
-    let old = MEMBERS.may_load(storage, &sender)?;
-
-    // short-circuit if no change
-    if new == old {
-        return Ok(vec![]);
-    }
-    // otherwise, record change of weight
-    match new.as_ref() {
-        Some(w) => MEMBERS.save(storage, &sender, w, height),
-        None => MEMBERS.remove(storage, &sender, height),
-    }?;
-
-    // update total
-    TOTAL.update(storage, |total| -> StdResult<_> {
-        Ok(total + new.unwrap_or_default() - old.unwrap_or_default())
-    })?;
-
-    // alert the hooks
-    let diff = MemberDiff::new(sender, old, new);
-    HOOKS.prepare_hooks(storage, |h| {
-        MemberChangedHookMsg::one(diff.clone())
-            .into_cosmos_msg(h)
-            .map(SubMsg::new)
-    })
-}
-
-fn calc_weight(stake: Uint128, cfg: &Config) -> Option<u64> {
-    if stake < cfg.min_bond {
-        None
-    } else {
-        let w = stake.u128() / (cfg.tokens_per_weight.u128());
-        Some(w as u64)
-    }
-}
-
-pub fn execute_claim(
-    deps: DepsMut,
-    env: Env,
-    info: MessageInfo,
-) -> Result<Response, ContractError> {
-    let release = CLAIMS.claim_tokens(deps.storage, &info.sender, &env.block, None)?;
-    if release.is_zero() {
-        return Err(ContractError::NothingToClaim {});
-    }
-
-    let config = CONFIG.load(deps.storage)?;
-    let (amount_str, message) = match &config.denom {
-        Denom::Native(denom) => {
-            let amount_str = coin_to_string(release, denom.as_str());
-            let amount = coins(release.u128(), denom);
-            let message = SubMsg::new(BankMsg::Send {
-                to_address: info.sender.to_string(),
-                amount,
-            });
-            (amount_str, message)
-        }
-        Denom::Cw20(addr) => {
-            let amount_str = coin_to_string(release, addr.as_str());
-            let transfer = Cw20ExecuteMsg::Transfer {
-                recipient: info.sender.clone().into(),
-                amount: release,
-            };
-            let message = SubMsg::new(WasmMsg::Execute {
-                contract_addr: addr.into(),
-                msg: to_binary(&transfer)?,
-                funds: vec![],
-            });
-            (amount_str, message)
-        }
-    };
-
-    Ok(Response::new()
-        .add_submessage(message)
-        .add_attribute("action", "claim")
-        .add_attribute("tokens", amount_str)
-        .add_attribute("sender", info.sender))
-}
-
-#[inline]
-fn coin_to_string(amount: Uint128, denom: &str) -> String {
-    format!("{} {}", amount, denom)
 }
 
 #[cfg_attr(not(feature = "library"), entry_point)]
@@ -373,9 +182,6 @@ pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
             to_binary(&list_members(deps, start_after, limit)?)
         }
         QueryMsg::TotalWeight {} => to_binary(&query_total_weight(deps)?),
-        QueryMsg::Claims { address } => {
-            to_binary(&CLAIMS.query_claims(deps, &deps.api.addr_validate(&address)?)?)
-        }
         QueryMsg::Staked { address } => to_binary(&query_staked(deps, address)?),
         QueryMsg::Admin {} => to_binary(&ADMIN.query_admin(deps)?),
         QueryMsg::Hooks {} => to_binary(&HOOKS.query_hooks(deps)?),
@@ -474,58 +280,11 @@ mod tests {
         collection: &str,
     ) {
         let msg = InstantiateMsg {
-            denom: Denom::Native("stake".to_string()),
-            tokens_per_weight,
-            min_bond,
-            unbonding_period,
             collection: collection.to_string(),
             admin: Some(INIT_ADMIN.into()),
         };
         let info = mock_info("creator", &[]);
         instantiate(deps, mock_env(), info, msg).unwrap();
-    }
-
-    fn cw20_instantiate(deps: DepsMut, unbonding_period: Duration) {
-        let msg = InstantiateMsg {
-            denom: Denom::Cw20(Addr::unchecked(CW20_ADDRESS)),
-            tokens_per_weight: TOKENS_PER_WEIGHT,
-            min_bond: MIN_BOND,
-            unbonding_period,
-            collection: "collection".to_string(),
-            admin: Some(INIT_ADMIN.into()),
-        };
-        let info = mock_info("creator", &[]);
-        instantiate(deps, mock_env(), info, msg).unwrap();
-    }
-
-    fn bond(mut deps: DepsMut, user1: u128, user2: u128, user3: u128, height_delta: u64) {
-        let mut env = mock_env();
-        env.block.height += height_delta;
-
-        for (addr, stake) in &[(USER1, user1), (USER2, user2), (USER3, user3)] {
-            if *stake != 0 {
-                let msg = ExecuteMsg::Bond {};
-                let info = mock_info(addr, &coins(*stake, DENOM));
-                execute(deps.branch(), env.clone(), info, msg).unwrap();
-            }
-        }
-    }
-
-    fn bond_cw20(mut deps: DepsMut, user1: u128, user2: u128, user3: u128, height_delta: u64) {
-        let mut env = mock_env();
-        env.block.height += height_delta;
-
-        for (addr, stake) in &[(USER1, user1), (USER2, user2), (USER3, user3)] {
-            if *stake != 0 {
-                let msg = ExecuteMsg::Receive(Cw20ReceiveMsg {
-                    sender: addr.to_string(),
-                    amount: Uint128::new(*stake),
-                    msg: to_binary(&ReceiveMsg::Bond {}).unwrap(),
-                });
-                let info = mock_info(CW20_ADDRESS, &[]);
-                execute(deps.branch(), env.clone(), info, msg).unwrap();
-            }
-        }
     }
 
     fn unbond(mut deps: DepsMut, user1: u128, user2: u128, user3: u128, height_delta: u64) {
@@ -704,65 +463,6 @@ mod tests {
     }
 
     #[test]
-    fn cw20_token_claim() {
-        let unbonding_period: u64 = 50;
-        let unbond_height: u64 = 10;
-
-        let mut deps = mock_dependencies();
-        let unbonding = Duration::Height(unbonding_period);
-        cw20_instantiate(deps.as_mut(), unbonding);
-
-        // bond some tokens
-        bond_cw20(deps.as_mut(), 20_000, 13_500, 500, 1);
-
-        // unbond part
-        unbond(deps.as_mut(), 7_900, 4_600, 0, unbond_height);
-
-        // Assert updated weights
-        assert_stake(deps.as_ref(), 12_100, 8_900, 500);
-        assert_users(deps.as_ref(), Some(12), Some(8), None, None);
-
-        // with proper claims
-        let mut env = mock_env();
-        env.block.height += unbond_height;
-        let expires = unbonding.after(&env.block);
-        assert_eq!(
-            get_claims(deps.as_ref(), &Addr::unchecked(USER1)),
-            vec![Claim::new(7_900, expires)]
-        );
-
-        // wait til they expire and get payout
-        env.block.height += unbonding_period;
-        let res = execute(
-            deps.as_mut(),
-            env,
-            mock_info(USER1, &[]),
-            ExecuteMsg::Claim {},
-        )
-        .unwrap();
-        assert_eq!(res.messages.len(), 1);
-        match &res.messages[0].msg {
-            CosmosMsg::Wasm(WasmMsg::Execute {
-                contract_addr,
-                msg,
-                funds,
-            }) => {
-                assert_eq!(contract_addr.as_str(), CW20_ADDRESS);
-                assert_eq!(funds.len(), 0);
-                let parsed: Cw20ExecuteMsg = from_slice(msg).unwrap();
-                assert_eq!(
-                    parsed,
-                    Cw20ExecuteMsg::Transfer {
-                        recipient: USER1.into(),
-                        amount: Uint128::new(7_900)
-                    }
-                );
-            }
-            _ => panic!("Must initiate cw20 transfer"),
-        }
-    }
-
-    #[test]
     fn raw_queries_work() {
         // add will over-write and remove have no effect
         let mut deps = mock_dependencies();
@@ -783,144 +483,6 @@ mod tests {
         // and execute misses
         let member3_raw = deps.storage.get(&member_key(USER3));
         assert_eq!(None, member3_raw);
-    }
-
-    fn get_claims(deps: Deps, addr: &Addr) -> Vec<Claim> {
-        CLAIMS.query_claims(deps, addr).unwrap().claims
-    }
-
-    #[test]
-    fn unbond_claim_workflow() {
-        let mut deps = mock_dependencies();
-        default_instantiate(deps.as_mut());
-
-        // create some data
-        bond(deps.as_mut(), 12_000, 7_500, 4_000, 1);
-        unbond(deps.as_mut(), 4_500, 2_600, 0, 2);
-        let mut env = mock_env();
-        env.block.height += 2;
-
-        // check the claims for each user
-        let expires = Duration::Height(UNBONDING_BLOCKS).after(&env.block);
-        assert_eq!(
-            get_claims(deps.as_ref(), &Addr::unchecked(USER1)),
-            vec![Claim::new(4_500, expires)]
-        );
-        assert_eq!(
-            get_claims(deps.as_ref(), &Addr::unchecked(USER2)),
-            vec![Claim::new(2_600, expires)]
-        );
-        assert_eq!(get_claims(deps.as_ref(), &Addr::unchecked(USER3)), vec![]);
-
-        // do another unbond later on
-        let mut env2 = mock_env();
-        env2.block.height += 22;
-        unbond(deps.as_mut(), 0, 1_345, 1_500, 22);
-
-        // with updated claims
-        let expires2 = Duration::Height(UNBONDING_BLOCKS).after(&env2.block);
-        assert_eq!(
-            get_claims(deps.as_ref(), &Addr::unchecked(USER1)),
-            vec![Claim::new(4_500, expires)]
-        );
-        assert_eq!(
-            get_claims(deps.as_ref(), &Addr::unchecked(USER2)),
-            vec![Claim::new(2_600, expires), Claim::new(1_345, expires2)]
-        );
-        assert_eq!(
-            get_claims(deps.as_ref(), &Addr::unchecked(USER3)),
-            vec![Claim::new(1_500, expires2)]
-        );
-
-        // nothing can be withdrawn yet
-        let err = execute(
-            deps.as_mut(),
-            env2,
-            mock_info(USER1, &[]),
-            ExecuteMsg::Claim {},
-        )
-        .unwrap_err();
-        assert_eq!(err, ContractError::NothingToClaim {});
-
-        // now mature first section, withdraw that
-        let mut env3 = mock_env();
-        env3.block.height += 2 + UNBONDING_BLOCKS;
-        // first one can now release
-        let res = execute(
-            deps.as_mut(),
-            env3.clone(),
-            mock_info(USER1, &[]),
-            ExecuteMsg::Claim {},
-        )
-        .unwrap();
-        assert_eq!(
-            res.messages,
-            vec![SubMsg::new(BankMsg::Send {
-                to_address: USER1.into(),
-                amount: coins(4_500, DENOM),
-            })]
-        );
-
-        // second releases partially
-        let res = execute(
-            deps.as_mut(),
-            env3.clone(),
-            mock_info(USER2, &[]),
-            ExecuteMsg::Claim {},
-        )
-        .unwrap();
-        assert_eq!(
-            res.messages,
-            vec![SubMsg::new(BankMsg::Send {
-                to_address: USER2.into(),
-                amount: coins(2_600, DENOM),
-            })]
-        );
-
-        // but the third one cannot release
-        let err = execute(
-            deps.as_mut(),
-            env3,
-            mock_info(USER3, &[]),
-            ExecuteMsg::Claim {},
-        )
-        .unwrap_err();
-        assert_eq!(err, ContractError::NothingToClaim {});
-
-        // claims updated properly
-        assert_eq!(get_claims(deps.as_ref(), &Addr::unchecked(USER1)), vec![]);
-        assert_eq!(
-            get_claims(deps.as_ref(), &Addr::unchecked(USER2)),
-            vec![Claim::new(1_345, expires2)]
-        );
-        assert_eq!(
-            get_claims(deps.as_ref(), &Addr::unchecked(USER3)),
-            vec![Claim::new(1_500, expires2)]
-        );
-
-        // add another few claims for 2
-        unbond(deps.as_mut(), 0, 600, 0, 30 + UNBONDING_BLOCKS);
-        unbond(deps.as_mut(), 0, 1_005, 0, 50 + UNBONDING_BLOCKS);
-
-        // ensure second can claim all tokens at once
-        let mut env4 = mock_env();
-        env4.block.height += 55 + UNBONDING_BLOCKS + UNBONDING_BLOCKS;
-        let res = execute(
-            deps.as_mut(),
-            env4,
-            mock_info(USER2, &[]),
-            ExecuteMsg::Claim {},
-        )
-        .unwrap();
-        assert_eq!(
-            res.messages,
-            vec![SubMsg::new(BankMsg::Send {
-                to_address: USER2.into(),
-                // 1_345 + 600 + 1_005
-                amount: coins(2_950, DENOM),
-            })]
-        );
-        assert_eq!(get_claims(deps.as_ref(), &Addr::unchecked(USER2)), vec![]);
     }
 
     #[test]
