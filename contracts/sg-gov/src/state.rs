@@ -1,11 +1,19 @@
 use cosmwasm_schema::cw_serde;
 use cosmwasm_std::{Addr, QuerierWrapper, Storage};
-use cw3_flex_multisig::state::Executor;
 use cw4::Cw4Contract;
 use cw_storage_plus::Item;
 use cw_utils::{Duration, Threshold};
 
 use crate::ContractError;
+
+/// Defines who is able to execute proposals once passed
+#[cw_serde]
+pub enum Executor {
+    /// Any member of the voting group, even with 0 points
+    Member,
+    /// Only the given address
+    Only(Addr),
+}
 
 #[cw_serde]
 pub struct Config {

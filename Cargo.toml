@@ -33,7 +33,7 @@ sg-multi-test       = "0.21.1"
 sg-std              = "0.21.1"
 thiserror           = "1.0.31"
 
-[profile.release.package.sg-dao]
+[profile.release.package.sg-gov]
 codegen-units = 1
 incremental = false
 

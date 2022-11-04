@@ -1,9 +1,10 @@
-use cosmwasm_schema::cw_serde;
+use cosmwasm_schema::{cw_serde, QueryResponses};
 use cosmwasm_std::{CosmosMsg, Empty};
 use cw3::Vote;
-use cw3_flex_multisig::state::Executor;
 use cw4::{Cw4Contract, Member};
 use cw_utils::{Duration, Expiration, Threshold};
+
+use crate::state::Executor;
 
 #[cw_serde]
 pub struct InstantiateMsg {
@@ -40,37 +41,38 @@ pub enum ExecuteMsg {
 }
 
 #[cw_serde]
+#[derive(QueryResponses)]
 pub enum QueryMsg {
-    /// Return ThresholdResponse
+    #[returns(cw_utils::ThresholdResponse)]
     Threshold {},
-    /// Returns ProposalResponse
+    #[returns(cw3::ProposalResponse)]
     Proposal { proposal_id: u64 },
-    /// Returns ProposalListResponse
+    #[returns(cw3::ProposalListResponse)]
     ListProposals {
         start_after: Option<u64>,
         limit: Option<u32>,
     },
-    /// Returns ProposalListResponse
+    #[returns(cw3::ProposalListResponse)]
     ReverseProposals {
         start_before: Option<u64>,
         limit: Option<u32>,
     },
-    /// Returns VoteResponse
+    #[returns(cw3::VoteResponse)]
     Vote { proposal_id: u64, voter: String },
-    /// Returns VoteListResponse
+    #[returns(cw3::VoteListResponse)]
     ListVotes {
         proposal_id: u64,
         start_after: Option<String>,
         limit: Option<u32>,
     },
-    /// Returns VoterInfo
+    #[returns(cw3::VoterResponse)]
     Voter { address: String },
-    /// Returns VoterListResponse
+    #[returns(cw3::VoterListResponse)]
     ListVoters {
         start_after: Option<String>,
         limit: Option<u32>,
     },
-    /// Returns GroupResponse
+    #[returns(GroupResponse)]
     Group {},
 }
 

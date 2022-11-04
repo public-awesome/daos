@@ -14,7 +14,7 @@ mod tests {
         ProposalListResponse, ProposalResponse, Status, Vote, VoteInfo, VoteListResponse,
         VoteResponse, VoterDetail, VoterListResponse,
     };
-    use cw3_flex_multisig::state::Executor as Cw3Executor;
+    // use cw3_flex_multisig::state::Executor as Cw3Executor;
     use cw4::Member;
     use cw4_group::helpers::Cw4GroupContract;
     use cw721::{Cw721QueryMsg, OwnerOfResponse};
@@ -93,7 +93,7 @@ mod tests {
         app: &mut App,
         threshold: Threshold,
         max_voting_period: Duration,
-        executor: Option<Cw3Executor>,
+        executor: Option<crate::state::Executor>,
     ) -> Addr {
         let dao_id = app.store_code(contract_nft_dao());
         let group_id = app.store_code(contract_group());
@@ -136,7 +136,7 @@ mod tests {
         threshold: Threshold,
         max_voting_period: Duration,
         init_funds: Vec<Coin>,
-        executor: Option<Cw3Executor>,
+        executor: Option<crate::state::Executor>,
     ) -> Addr {
         let dao_addr = instantiate_dao(app, threshold, max_voting_period, executor);
         app.update_block(next_block);
@@ -804,7 +804,7 @@ mod tests {
             threshold,
             voting_period,
             init_funds,
-            Some(Cw3Executor::Member), // set executor as Member of voting group
+            Some(crate::state::Executor::Member), // set executor as Member of voting group
         );
 
         // create proposal with 0 vote power
@@ -859,7 +859,7 @@ mod tests {
             threshold,
             voting_period,
             init_funds,
-            Some(Cw3Executor::Only(Addr::unchecked(VOTER3))), // only VOTER3 can execute proposal
+            Some(crate::state::Executor::Only(Addr::unchecked(VOTER3))), // only VOTER3 can execute proposal
         );
 
         // create proposal with 0 vote power

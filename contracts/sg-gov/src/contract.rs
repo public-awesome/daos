@@ -22,7 +22,7 @@ use crate::msg::{ExecuteMsg, GroupResponse, InstantiateMsg, QueryMsg};
 use crate::state::{Config, CONFIG, GROUP};
 
 // version info for migration info
-pub const CONTRACT_NAME: &str = "crates.io:sg-dao";
+pub const CONTRACT_NAME: &str = "crates.io:sg-gov";
 pub const CONTRACT_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 const INIT_GROUP_REPLY_ID: u64 = 1;
