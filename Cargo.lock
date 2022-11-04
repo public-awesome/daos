@@ -806,7 +806,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "sg-nft-stake"
+name = "sg-nft-group"
 version = "0.1.0"
 dependencies = [
  "cosmwasm-schema",

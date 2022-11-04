@@ -1,5 +1,5 @@
 [package]
-name = "sg-nft-stake"
+name = "sg-nft-group"
 authors = ["Ethan Frey <ethanfrey@users.noreply.github.com>", "Shane Vitarana <s@noreply.publicawesome.com>"]
 description = "CW4 implementation of group based on staked NFTs"
 version     = { workspace = true }
