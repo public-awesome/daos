@@ -4,7 +4,7 @@ use std::cmp::Ordering;
 use cosmwasm_std::entry_point;
 use cosmwasm_std::{
     to_binary, Binary, BlockInfo, CosmosMsg, Deps, DepsMut, Empty, Env, MessageInfo, Order, Reply,
-    Response, StdResult, SubMsg, WasmMsg,
+    Response, StdResult, SubMsg,
 };
 use cw2::set_contract_version;
 use cw3::{
@@ -13,7 +13,6 @@ use cw3::{
 };
 use cw3_fixed_multisig::state::{next_id, Ballot, Proposal, Votes, BALLOTS, PROPOSALS};
 use cw4::Cw4Contract;
-use cw4_group::msg::InstantiateMsg as Cw4GroupInstantiateMsg;
 use cw_storage_plus::Bound;
 use cw_utils::{maybe_addr, parse_reply_instantiate_data, Expiration, ThresholdResponse};
 
@@ -36,7 +35,7 @@ pub fn instantiate(
 ) -> Result<Response, ContractError> {
     set_contract_version(deps.storage, CONTRACT_NAME, CONTRACT_VERSION)?;
 
-    let dao_addr = env.contract.address;
+    let self_addr = env.contract.address;
 
     let cfg = Config {
         threshold: msg.threshold,
@@ -46,22 +45,10 @@ pub fn instantiate(
     CONFIG.save(deps.storage, &cfg)?;
 
     match msg.group {
-        Group::CodeId(code_id) => {
-            let init_msg = Cw4GroupInstantiateMsg {
-                admin: Some(dao_addr.to_string()),
-                members: msg.members,
-            };
-            let wasm_msg = WasmMsg::Instantiate {
-                admin: Some(dao_addr.to_string()),
-                code_id,
-                msg: to_binary(&init_msg)?,
-                funds: vec![],
-                label: "DAO-group".to_string(),
-            };
-            let submsg = SubMsg::reply_on_success(wasm_msg, INIT_GROUP_REPLY_ID);
-            Ok(Response::default().add_submessage(submsg))
-        }
-        Group::Contract(addr) => {
+        Group::Cw4Instantiate(init) => Ok(Response::default().add_submessage(
+            SubMsg::reply_on_success(init.into_wasm_msg(self_addr), INIT_GROUP_REPLY_ID),
+        )),
+        Group::Cw4Address(addr) => {
             GROUP.save(deps.storage, &Cw4Contract(deps.api.addr_validate(&addr)?))?;
             Ok(Response::default())
         }
@@ -278,18 +265,18 @@ pub fn reply(deps: DepsMut, _env: Env, msg: Reply) -> Result<Response, ContractE
     let reply = parse_reply_instantiate_data(msg);
     match reply {
         Ok(res) => {
-            let group_addr =
+            let group =
                 Cw4Contract(deps.api.addr_validate(&res.contract_address).map_err(|_| {
                     ContractError::InvalidGroup {
                         addr: res.contract_address.clone(),
                     }
                 })?);
 
-            let total_weight = group_addr.total_weight(&deps.querier)?;
+            let total_weight = group.total_weight(&deps.querier)?;
             let config = CONFIG.load(deps.storage)?;
             config.threshold.validate(total_weight)?;
 
-            GROUP.save(deps.storage, &group_addr)?;
+            GROUP.save(deps.storage, &group)?;
 
             Ok(Response::default().add_attribute("action", "reply_on_success"))
         }
