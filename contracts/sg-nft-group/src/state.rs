@@ -1,7 +1,7 @@
 use cosmwasm_schema::cw_serde;
 use cosmwasm_std::Addr;
 use cw4::TOTAL_KEY;
-use cw_controllers::{Admin, Hooks};
+use cw_controllers::Admin;
 use cw_storage_plus::{Item, SnapshotMap, Strategy};
 
 #[cw_serde]
@@ -10,7 +10,6 @@ pub struct Config {
 }
 
 pub const ADMIN: Admin = Admin::new("admin");
-pub const HOOKS: Hooks = Hooks::new("cw4-hooks");
 pub const CONFIG: Item<Config> = Item::new("config");
 pub const TOTAL: Item<u64> = Item::new(TOTAL_KEY);
 

@@ -19,10 +19,6 @@ pub enum ExecuteMsg {
     Remove { token_id: String },
     /// Change the admin
     UpdateAdmin { admin: Option<String> },
-    /// Add a new hook to be informed of all membership changes. Must be called by Admin
-    AddHook { addr: String },
-    /// Remove a hook. Must be called by Admin
-    RemoveHook { addr: String },
 }
 
 #[cw_serde]
@@ -44,7 +40,4 @@ pub enum QueryMsg {
         addr: String,
         at_height: Option<u64>,
     },
-    /// Shows all registered hooks.
-    #[returns(cw_controllers::HooksResponse)]
-    Hooks {},
 }

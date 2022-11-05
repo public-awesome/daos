@@ -6,10 +6,7 @@ use cosmwasm_std::{
 };
 
 use cw2::set_contract_version;
-use cw4::{
-    Member, MemberChangedHookMsg, MemberDiff, MemberListResponse, MemberResponse,
-    TotalWeightResponse,
-};
+use cw4::{Member, MemberListResponse, MemberResponse, TotalWeightResponse};
 use cw721::Cw721ReceiveMsg;
 use cw721_base::{ExecuteMsg as Cw721BaseExecuteMsg, MintMsg as Cw721BaseMintMsg};
 use cw_storage_plus::Bound;
@@ -17,7 +14,7 @@ use cw_utils::maybe_addr;
 
 use crate::error::ContractError;
 use crate::msg::{ExecuteMsg, InstantiateMsg, QueryMsg};
-use crate::state::{Config, ADMIN, COLLECTION, CONFIG, HOOKS, MEMBERS, TOTAL};
+use crate::state::{Config, ADMIN, COLLECTION, CONFIG, MEMBERS, TOTAL};
 
 // version info for migration info
 const CONTRACT_NAME: &str = "crates.io:sg-nft-group";
@@ -59,12 +56,6 @@ pub fn execute(
         ExecuteMsg::UpdateAdmin { admin } => {
             Ok(ADMIN.execute_update_admin(deps, info, maybe_addr(api, admin)?)?)
         }
-        ExecuteMsg::AddHook { addr } => {
-            Ok(HOOKS.execute_add_hook(&ADMIN, deps, info, api.addr_validate(&addr)?)?)
-        }
-        ExecuteMsg::RemoveHook { addr } => {
-            Ok(HOOKS.execute_remove_hook(&ADMIN, deps, info, api.addr_validate(&addr)?)?)
-        }
     }
 }
 
@@ -85,12 +76,11 @@ pub fn execute_receive_nft(
     let sender = deps.api.addr_validate(&wrapper.sender)?;
     let height = env.block.height;
 
-    let hook_msg = add_member_weight(deps.storage, sender, height)?;
+    add_member_weight(deps.storage, sender, height)?;
     let join_msg = join(deps.storage, &wrapper.token_id, &wrapper.sender)?;
 
     Ok(Response::new()
         .add_attribute("action", "receive_nft")
-        .add_submessages(hook_msg)
         .add_submessage(join_msg)
         .add_attribute("from", wrapper.sender)
         .add_attribute("token_id", wrapper.token_id))
@@ -105,60 +95,31 @@ pub fn execute_remove(
     let member = info.sender;
     // TODO: verify member is the owner of the NFT
 
-    let remove_msgs = remove_member_weight(deps.storage, member.clone(), env.block.height)?;
+    remove_member_weight(deps.storage, member.clone(), env.block.height)?;
     let leave_msgs = leave(deps.storage, &token_id, member.as_ref())?;
 
     Ok(Response::new()
-        .add_submessages(remove_msgs)
         .add_submessages(leave_msgs)
         .add_attribute("action", "exit")
         .add_attribute("sender", member))
 }
 
-fn add_member_weight(store: &mut dyn Storage, member: Addr, height: u64) -> StdResult<Vec<SubMsg>> {
-    let mut msgs = vec![];
-
+fn add_member_weight(store: &mut dyn Storage, member: Addr, height: u64) -> StdResult<()> {
     MEMBERS.update(store, &member, height, |old| -> StdResult<_> {
-        let new = old.unwrap_or_default() + 1;
-
-        // let diff = MemberDiff::new(staker.clone(), old, Some(new));
-        // msgs = HOOKS.prepare_hooks(store, |h| {
-        //     MemberChangedHookMsg::one(diff.clone())
-        //         .into_cosmos_msg(h)
-        //         .map(SubMsg::new)
-        // })?;
-
-        Ok(new)
+        Ok(old.unwrap_or_default() + 1)
     })?;
-
     TOTAL.update(store, |old| -> StdResult<_> { Ok(old + 1) })?;
 
-    Ok(msgs)
+    Ok(())
 }
 
-fn remove_member_weight(
-    store: &mut dyn Storage,
-    member: Addr,
-    height: u64,
-) -> StdResult<Vec<SubMsg>> {
-    let mut msgs = vec![];
-
+fn remove_member_weight(store: &mut dyn Storage, member: Addr, height: u64) -> StdResult<()> {
     MEMBERS.update(store, &member, height, |old| -> StdResult<_> {
-        let new = old.unwrap_or_default() - 1;
-
-        // let diff = MemberDiff::new(staker.clone(), old, Some(new));
-        // msgs = HOOKS.prepare_hooks(store, |h| {
-        //     MemberChangedHookMsg::one(diff.clone())
-        //         .into_cosmos_msg(h)
-        //         .map(SubMsg::new)
-        // })?;
-
-        Ok(new)
+        Ok(old.unwrap_or_default() - 1)
     })?;
-
     TOTAL.update(store, |old| -> StdResult<_> { Ok(old - 1) })?;
 
-    Ok(msgs)
+    Ok(())
 }
 
 /// To the join the group, the sent NFT is minted into the internal collection.
@@ -220,7 +181,6 @@ pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
         QueryMsg::TotalWeight {} => to_binary(&query_total_weight(deps)?),
         QueryMsg::Collection {} => to_binary(&query_collection(deps)?),
         QueryMsg::Admin {} => to_binary(&ADMIN.query_admin(deps)?),
-        QueryMsg::Hooks {} => to_binary(&HOOKS.query_hooks(deps)?),
     }
 }
 
@@ -471,127 +431,4 @@ mod tests {
     //     let member3_raw = deps.storage.get(&member_key(USER3));
     //     assert_eq!(None, member3_raw);
     // }
-
-    #[test]
-    fn add_remove_hooks() {
-        // add will over-write and remove have no effect
-        let mut deps = mock_dependencies();
-        default_instantiate(deps.as_mut());
-
-        let hooks = HOOKS.query_hooks(deps.as_ref()).unwrap();
-        assert!(hooks.hooks.is_empty());
-
-        let contract1 = String::from("hook1");
-        let contract2 = String::from("hook2");
-
-        let add_msg = ExecuteMsg::AddHook {
-            addr: contract1.clone(),
-        };
-
-        // non-admin cannot add hook
-        let user_info = mock_info(USER1, &[]);
-        let err = execute(
-            deps.as_mut(),
-            mock_env(),
-            user_info.clone(),
-            add_msg.clone(),
-        )
-        .unwrap_err();
-        assert_eq!(err, HookError::Admin(AdminError::NotAdmin {}).into());
-
-        // admin can add it, and it appears in the query
-        let admin_info = mock_info(INIT_ADMIN, &[]);
-        let _ = execute(
-            deps.as_mut(),
-            mock_env(),
-            admin_info.clone(),
-            add_msg.clone(),
-        )
-        .unwrap();
-        let hooks = HOOKS.query_hooks(deps.as_ref()).unwrap();
-        assert_eq!(hooks.hooks, vec![contract1.clone()]);
-
-        // cannot remove a non-registered contract
-        let remove_msg = ExecuteMsg::RemoveHook {
-            addr: contract2.clone(),
-        };
-        let err = execute(deps.as_mut(), mock_env(), admin_info.clone(), remove_msg).unwrap_err();
-        assert_eq!(err, HookError::HookNotRegistered {}.into());
-
-        // add second contract
-        let add_msg2 = ExecuteMsg::AddHook {
-            addr: contract2.clone(),
-        };
-        let _ = execute(deps.as_mut(), mock_env(), admin_info.clone(), add_msg2).unwrap();
-        let hooks = HOOKS.query_hooks(deps.as_ref()).unwrap();
-        assert_eq!(hooks.hooks, vec![contract1.clone(), contract2.clone()]);
-
-        // cannot re-add an existing contract
-        let err = execute(deps.as_mut(), mock_env(), admin_info.clone(), add_msg).unwrap_err();
-        assert_eq!(err, HookError::HookAlreadyRegistered {}.into());
-
-        // non-admin cannot remove
-        let remove_msg = ExecuteMsg::RemoveHook { addr: contract1 };
-        let err = execute(deps.as_mut(), mock_env(), user_info, remove_msg.clone()).unwrap_err();
-        assert_eq!(err, HookError::Admin(AdminError::NotAdmin {}).into());
-
-        // remove the original
-        let _ = execute(deps.as_mut(), mock_env(), admin_info, remove_msg).unwrap();
-        let hooks = HOOKS.query_hooks(deps.as_ref()).unwrap();
-        assert_eq!(hooks.hooks, vec![contract2]);
-    }
-
-    #[test]
-    fn hooks_fire() {
-        let mut deps = mock_dependencies();
-        default_instantiate(deps.as_mut());
-
-        let hooks = HOOKS.query_hooks(deps.as_ref()).unwrap();
-        assert!(hooks.hooks.is_empty());
-
-        let contract1 = String::from("hook1");
-        let contract2 = String::from("hook2");
-
-        // register 2 hooks
-        let admin_info = mock_info(INIT_ADMIN, &[]);
-        let add_msg = ExecuteMsg::AddHook {
-            addr: contract1.clone(),
-        };
-        let add_msg2 = ExecuteMsg::AddHook {
-            addr: contract2.clone(),
-        };
-        for msg in vec![add_msg, add_msg2] {
-            let _ = execute(deps.as_mut(), mock_env(), admin_info.clone(), msg).unwrap();
-        }
-
-        // // check firing on bond
-        // assert_users(deps.as_ref(), None, None, None, None);
-        // let info = mock_info(USER1, &coins(13_800, DENOM));
-        // let res = execute(deps.as_mut(), mock_env(), info, ExecuteMsg::Bond {}).unwrap();
-        // assert_users(deps.as_ref(), Some(13), None, None, None);
-
-        // // ensure messages for each of the 2 hooks
-        // assert_eq!(res.messages.len(), 2);
-        // let diff = MemberDiff::new(USER1, None, Some(13));
-        // let hook_msg = MemberChangedHookMsg::one(diff);
-        // let msg1 = SubMsg::new(hook_msg.clone().into_cosmos_msg(contract1.clone()).unwrap());
-        // let msg2 = SubMsg::new(hook_msg.into_cosmos_msg(contract2.clone()).unwrap());
-        // assert_eq!(res.messages, vec![msg1, msg2]);
-
-        // // check firing on unbond
-        // let msg = ExecuteMsg::Exit {
-        //     tokens: Uint128::new(7_300),
-        // };
-        // let info = mock_info(USER1, &[]);
-        // let res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
-        // assert_users(deps.as_ref(), Some(6), None, None, None);
-
-        // // ensure messages for each of the 2 hooks
-        // assert_eq!(res.messages.len(), 2);
-        // let diff = MemberDiff::new(USER1, Some(13), Some(6));
-        // let hook_msg = MemberChangedHookMsg::one(diff);
-        // let msg1 = SubMsg::new(hook_msg.clone().into_cosmos_msg(contract1).unwrap());
-        // let msg2 = SubMsg::new(hook_msg.into_cosmos_msg(contract2).unwrap());
-        // assert_eq!(res.messages, vec![msg1, msg2]);
-    }
 }

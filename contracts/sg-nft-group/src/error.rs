@@ -1,7 +1,6 @@
 use cosmwasm_std::{Addr, StdError};
+use cw_controllers::AdminError;
 use thiserror::Error;
-
-use cw_controllers::{AdminError, HookError};
 
 #[derive(Error, Debug, PartialEq)]
 pub enum ContractError {
@@ -10,9 +9,6 @@ pub enum ContractError {
 
     #[error("{0}")]
     Admin(#[from] AdminError),
-
-    #[error("{0}")]
-    Hook(#[from] HookError),
 
     #[error("Unauthorized")]
     Unauthorized {},
