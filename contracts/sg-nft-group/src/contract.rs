@@ -14,7 +14,7 @@ use cw_utils::maybe_addr;
 
 use crate::error::ContractError;
 use crate::msg::{ExecuteMsg, InstantiateMsg, QueryMsg};
-use crate::state::{Config, ADMIN, COLLECTION, CONFIG, MEMBERS, TOTAL};
+use crate::state::{Config, COLLECTION, CONFIG, MEMBERS, TOTAL};
 
 // version info for migration info
 const CONTRACT_NAME: &str = "crates.io:sg-nft-group";
@@ -23,14 +23,13 @@ const CONTRACT_VERSION: &str = env!("CARGO_PKG_VERSION");
 // Instantiate a group for the specified collection
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn instantiate(
-    mut deps: DepsMut,
+    deps: DepsMut,
     _env: Env,
     _info: MessageInfo,
     msg: InstantiateMsg,
 ) -> Result<Response, ContractError> {
     set_contract_version(deps.storage, CONTRACT_NAME, CONTRACT_VERSION)?;
     let api = deps.api;
-    ADMIN.set(deps.branch(), maybe_addr(api, msg.admin)?)?;
 
     let config = Config {
         collection: api.addr_validate(&msg.collection)?,
@@ -49,13 +48,9 @@ pub fn execute(
     info: MessageInfo,
     msg: ExecuteMsg,
 ) -> Result<Response, ContractError> {
-    let api = deps.api;
     match msg {
         ExecuteMsg::ReceiveNft(msg) => execute_receive_nft(deps, env, info, msg),
         ExecuteMsg::Remove { token_id } => execute_remove(deps, env, info, token_id),
-        ExecuteMsg::UpdateAdmin { admin } => {
-            Ok(ADMIN.execute_update_admin(deps, info, maybe_addr(api, admin)?)?)
-        }
     }
 }
 
@@ -180,7 +175,6 @@ pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
         }
         QueryMsg::TotalWeight {} => to_binary(&query_total_weight(deps)?),
         QueryMsg::Collection {} => to_binary(&query_collection(deps)?),
-        QueryMsg::Admin {} => to_binary(&ADMIN.query_admin(deps)?),
     }
 }
 
@@ -236,7 +230,6 @@ mod tests {
         coin, from_slice, CosmosMsg, OverflowError, OverflowOperation, StdError, Storage,
     };
     use cw4::{member_key, TOTAL_KEY};
-    use cw_controllers::{AdminError, HookError};
     use cw_utils::Duration;
 
     use crate::error::ContractError;
@@ -256,7 +249,6 @@ mod tests {
     fn do_instantiate(deps: DepsMut, collection: &str) {
         let msg = InstantiateMsg {
             collection: collection.to_string(),
-            admin: Some(INIT_ADMIN.into()),
         };
         let info = mock_info("creator", &[]);
         instantiate(deps, mock_env(), info, msg).unwrap();
@@ -281,10 +273,6 @@ mod tests {
     fn proper_instantiation() {
         let mut deps = mock_dependencies();
         default_instantiate(deps.as_mut());
-
-        // it worked, let's query the state
-        let res = ADMIN.query_admin(deps.as_ref()).unwrap();
-        assert_eq!(Some(INIT_ADMIN.into()), res.admin);
 
         let res = query_total_weight(deps.as_ref()).unwrap();
         assert_eq!(0, res.weight);
