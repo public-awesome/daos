@@ -118,13 +118,15 @@ fn only_owner(
     collection: &Addr,
     token_id: &str,
 ) -> Result<String, ContractError> {
-    let res = Cw721Contract::<Empty, Empty>(collection.clone(), PhantomData, PhantomData)
-        .owner_of(&deps.querier, token_id, false)?;
-    if res.owner != *sender {
-        return Err(ContractError::Unauthorized {});
-    }
-
-    Ok(res.owner)
+    Cw721Contract::<Empty, Empty>(collection.clone(), PhantomData, PhantomData)
+        .owner_of(&deps.querier, token_id, false)
+        .map(|res| {
+            if res.owner != *sender {
+                Err(ContractError::Unauthorized {})
+            } else {
+                Ok(res.owner)
+            }
+        })?
 }
 
 fn add_member_weight(store: &mut dyn Storage, member: &Addr, height: u64) -> StdResult<()> {
