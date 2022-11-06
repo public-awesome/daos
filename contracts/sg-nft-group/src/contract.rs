@@ -1,3 +1,5 @@
+use std::marker::PhantomData;
+
 #[cfg(not(feature = "library"))]
 use cosmwasm_std::entry_point;
 use cosmwasm_std::{
@@ -8,6 +10,7 @@ use cosmwasm_std::{
 use cw2::set_contract_version;
 use cw4::{Member, MemberListResponse, MemberResponse, TotalWeightResponse};
 use cw721::Cw721ReceiveMsg;
+use cw721_base::helpers::Cw721Contract;
 use cw721_base::{ExecuteMsg as Cw721BaseExecuteMsg, MintMsg as Cw721BaseMintMsg};
 use cw_storage_plus::Bound;
 use cw_utils::maybe_addr;
@@ -61,6 +64,7 @@ pub fn execute_receive_nft(
     wrapper: Cw721ReceiveMsg,
 ) -> Result<Response, ContractError> {
     let collection = CONFIG.load(deps.storage)?.collection;
+
     if info.sender != collection {
         return Err(ContractError::InvalidCollection {
             received: info.sender,
@@ -68,17 +72,21 @@ pub fn execute_receive_nft(
         });
     }
 
-    let sender = deps.api.addr_validate(&wrapper.sender)?;
-    let height = env.block.height;
+    let Cw721ReceiveMsg {
+        sender, token_id, ..
+    } = wrapper;
 
-    add_member_weight(deps.storage, sender, height)?;
-    let join_msg = join(deps.storage, &wrapper.token_id, &wrapper.sender)?;
+    add_member_weight(
+        deps.storage,
+        &deps.api.addr_validate(&sender)?,
+        env.block.height,
+    )?;
 
     Ok(Response::new()
         .add_attribute("action", "receive_nft")
-        .add_submessage(join_msg)
-        .add_attribute("from", wrapper.sender)
-        .add_attribute("token_id", wrapper.token_id))
+        .add_submessage(join(deps.storage, &token_id, &sender)?)
+        .add_attribute("from", sender)
+        .add_attribute("token_id", token_id))
 }
 
 pub fn execute_remove(
@@ -88,19 +96,39 @@ pub fn execute_remove(
     token_id: String,
 ) -> Result<Response, ContractError> {
     let member = info.sender;
-    // TODO: verify member is the owner of the NFT
 
-    remove_member_weight(deps.storage, member.clone(), env.block.height)?;
-    let leave_msgs = leave(deps.storage, &token_id, member.as_ref())?;
+    only_owner(
+        deps.as_ref(),
+        &member,
+        &COLLECTION.load(deps.storage)?,
+        &token_id,
+    )?;
+
+    remove_member_weight(deps.storage, &member, env.block.height)?;
 
     Ok(Response::new()
-        .add_submessages(leave_msgs)
+        .add_submessages(leave(deps.storage, &token_id, member.as_ref())?)
         .add_attribute("action", "exit")
         .add_attribute("sender", member))
 }
 
-fn add_member_weight(store: &mut dyn Storage, member: Addr, height: u64) -> StdResult<()> {
-    MEMBERS.update(store, &member, height, |old| -> StdResult<_> {
+fn only_owner(
+    deps: Deps,
+    sender: &Addr,
+    collection: &Addr,
+    token_id: &str,
+) -> Result<String, ContractError> {
+    let res = Cw721Contract::<Empty, Empty>(collection.clone(), PhantomData, PhantomData)
+        .owner_of(&deps.querier, token_id, false)?;
+    if res.owner != *sender {
+        return Err(ContractError::Unauthorized {});
+    }
+
+    Ok(res.owner)
+}
+
+fn add_member_weight(store: &mut dyn Storage, member: &Addr, height: u64) -> StdResult<()> {
+    MEMBERS.update(store, member, height, |old| -> StdResult<_> {
         Ok(old.unwrap_or_default() + 1)
     })?;
     TOTAL.update(store, |old| -> StdResult<_> { Ok(old + 1) })?;
@@ -108,8 +136,8 @@ fn add_member_weight(store: &mut dyn Storage, member: Addr, height: u64) -> StdR
     Ok(())
 }
 
-fn remove_member_weight(store: &mut dyn Storage, member: Addr, height: u64) -> StdResult<()> {
-    MEMBERS.update(store, &member, height, |old| -> StdResult<_> {
+fn remove_member_weight(store: &mut dyn Storage, member: &Addr, height: u64) -> StdResult<()> {
+    MEMBERS.update(store, member, height, |old| -> StdResult<_> {
         Ok(old.unwrap_or_default() - 1)
     })?;
     TOTAL.update(store, |old| -> StdResult<_> { Ok(old - 1) })?;
