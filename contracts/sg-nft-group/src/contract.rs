@@ -168,29 +168,25 @@ fn join(store: &dyn Storage, token_id: &str, owner: &str) -> StdResult<SubMsg> {
 
 /// To leave the group, we have to burn the NFT from the internal collection.
 /// Then we have to transfer it from the collection to the original owner.
-fn leave(store: &dyn Storage, token_id: &str, owner: &str) -> StdResult<Vec<SubMsg>> {
-    let collection = COLLECTION.load(store)?;
-
-    let msg = Cw721BaseExecuteMsg::Burn::<Empty, Empty> {
-        token_id: token_id.to_string(),
-    };
-    let burn_msg = WasmMsg::Execute {
-        contract_addr: collection.to_string(),
-        msg: to_binary(&msg)?,
-        funds: vec![],
-    };
-
-    let msg = Cw721BaseExecuteMsg::TransferNft::<Empty, Empty> {
-        recipient: owner.to_string(),
-        token_id: token_id.to_string(),
-    };
+fn leave(store: &dyn Storage, token_id: &str, member: &str) -> StdResult<Vec<SubMsg>> {
     let transfer_msg = WasmMsg::Execute {
         contract_addr: CONFIG.load(store)?.collection.to_string(),
-        msg: to_binary(&msg)?,
+        msg: to_binary(&Cw721BaseExecuteMsg::TransferNft::<Empty, Empty> {
+            recipient: member.to_string(),
+            token_id: token_id.to_string(),
+        })?,
         funds: vec![],
     };
 
-    Ok(vec![SubMsg::new(burn_msg), SubMsg::new(transfer_msg)])
+    let burn_msg = WasmMsg::Execute {
+        contract_addr: COLLECTION.load(store)?.to_string(),
+        msg: to_binary(&Cw721BaseExecuteMsg::Burn::<Empty, Empty> {
+            token_id: token_id.to_string(),
+        })?,
+        funds: vec![],
+    };
+
+    Ok(vec![SubMsg::new(transfer_msg), SubMsg::new(burn_msg)])
 }
 
 #[cfg_attr(not(feature = "library"), entry_point)]
