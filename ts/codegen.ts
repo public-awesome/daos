@@ -6,6 +6,10 @@ codegen({
       name: "SgGov",
       dir: "../contracts/sg-gov/schema",
     },
+    {
+      name: "SgNftGroup",
+      dir: "../contracts/sg-nft-group/schema",
+    },
   ],
   outPath: "./src/",
 
