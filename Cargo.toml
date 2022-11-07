@@ -37,7 +37,7 @@ thiserror           = "1.0.31"
 codegen-units = 1
 incremental = false
 
-[profile.release.package.sg-nft-stake]
+[profile.release.package.sg-nft-group]
 codegen-units = 1
 incremental = false
 
