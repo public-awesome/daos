@@ -53,7 +53,7 @@ jobs:
             - target
           key: cargocache-sg-gov-rust:1.64.0-{{ checksum "~/project/Cargo.lock" }}
 
-  contract_sg-nft-group:
+  contract_sg_nft_group:
     docker:
       - image: rust:1.64.0
     working_directory: ~/project/contracts/sg-nft-group
