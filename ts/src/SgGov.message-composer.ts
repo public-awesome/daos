@@ -7,7 +7,7 @@
 import { MsgExecuteContractEncodeObject } from "cosmwasm";
 import { MsgExecuteContract } from "cosmjs-types/cosmwasm/wasm/v1/tx";
 import { toUtf8 } from "@cosmjs/encoding";
-import { ExecuteMsg, Expiration, Timestamp, Uint64, CosmosMsgForEmpty, BankMsg, Uint128, StakingMsg, DistributionMsg, WasmMsg, Binary, Vote, Coin, Empty, Executor, Addr, Duration, Threshold, Decimal, InstantiateMsg, Member, QueryMsg } from "./SgGov.types";
+import { Executor, Addr, Group, Admin, Binary, Duration, Threshold, Decimal, InstantiateMsg, Cw4Instantiate, ExecuteMsg, Expiration, Timestamp, Uint64, CosmosMsgForEmpty, BankMsg, Uint128, WasmMsg, Vote, Coin, Empty, QueryMsg, Cw4Contract, GroupResponse, Status, ThresholdResponse, ProposalListResponseForEmpty, ProposalResponseForEmpty, VoterListResponse, VoterDetail, VoteListResponse, VoteInfo, VoteResponse, VoterResponse } from "./SgGov.types";
 export interface SgGovMessage {
   contractAddress: string;
   sender: string;

@@ -4,29 +4,74 @@
 * and run the @cosmwasm/ts-codegen generate command to regenerate this file.
 */
 
+export type Executor = "member" | {
+  only: Addr;
+};
+export type Addr = string;
+export type Group = {
+  cw4_instantiate: Cw4Instantiate;
+} | {
+  cw4_address: string;
+};
+export type Admin = {
+  address: {
+    addr: string;
+  };
+} | {
+  creator: {};
+};
+export type Binary = string;
+export type Duration = {
+  height: number;
+} | {
+  time: number;
+};
+export type Threshold = {
+  absolute_count: {
+    weight: number;
+  };
+} | {
+  absolute_percentage: {
+    percentage: Decimal;
+  };
+} | {
+  threshold_quorum: {
+    quorum: Decimal;
+    threshold: Decimal;
+  };
+};
+export type Decimal = string;
+export interface InstantiateMsg {
+  executor?: Executor | null;
+  group: Group;
+  max_voting_period: Duration;
+  threshold: Threshold;
+}
+export interface Cw4Instantiate {
+  admin?: Admin | null;
+  code_id: number;
+  label: string;
+  msg: Binary;
+}
 export type ExecuteMsg = {
   propose: {
     description: string;
     latest?: Expiration | null;
     msgs: CosmosMsgForEmpty[];
     title: string;
-    [k: string]: unknown;
   };
 } | {
   vote: {
     proposal_id: number;
     vote: Vote;
-    [k: string]: unknown;
   };
 } | {
   execute: {
     proposal_id: number;
-    [k: string]: unknown;
   };
 } | {
   close: {
     proposal_id: number;
-    [k: string]: unknown;
   };
 };
 export type Expiration = {
@@ -34,9 +79,7 @@ export type Expiration = {
 } | {
   at_time: Timestamp;
 } | {
-  never: {
-    [k: string]: unknown;
-  };
+  never: {};
 };
 export type Timestamp = Uint64;
 export type Uint64 = string;
@@ -44,10 +87,6 @@ export type CosmosMsgForEmpty = {
   bank: BankMsg;
 } | {
   custom: Empty;
-} | {
-  staking: StakingMsg;
-} | {
-  distribution: DistributionMsg;
 } | {
   wasm: WasmMsg;
 };
@@ -64,37 +103,6 @@ export type BankMsg = {
   };
 };
 export type Uint128 = string;
-export type StakingMsg = {
-  delegate: {
-    amount: Coin;
-    validator: string;
-    [k: string]: unknown;
-  };
-} | {
-  undelegate: {
-    amount: Coin;
-    validator: string;
-    [k: string]: unknown;
-  };
-} | {
-  redelegate: {
-    amount: Coin;
-    dst_validator: string;
-    src_validator: string;
-    [k: string]: unknown;
-  };
-};
-export type DistributionMsg = {
-  set_withdraw_address: {
-    address: string;
-    [k: string]: unknown;
-  };
-} | {
-  withdraw_delegator_reward: {
-    validator: string;
-    [k: string]: unknown;
-  };
-};
 export type WasmMsg = {
   execute: {
     contract_addr: string;
@@ -130,7 +138,6 @@ export type WasmMsg = {
     [k: string]: unknown;
   };
 };
-export type Binary = string;
 export type Vote = "yes" | "no" | "abstain" | "veto";
 export interface Coin {
   amount: Uint128;
@@ -140,93 +147,98 @@ export interface Coin {
 export interface Empty {
   [k: string]: unknown;
 }
-export type Executor = "Member" | {
-  Only: Addr;
-};
-export type Addr = string;
-export type Duration = {
-  height: number;
-} | {
-  time: number;
-};
-export type Threshold = {
-  absolute_count: {
-    weight: number;
-    [k: string]: unknown;
-  };
-} | {
-  absolute_percentage: {
-    percentage: Decimal;
-    [k: string]: unknown;
-  };
-} | {
-  threshold_quorum: {
-    quorum: Decimal;
-    threshold: Decimal;
-    [k: string]: unknown;
-  };
-};
-export type Decimal = string;
-export interface InstantiateMsg {
-  executor?: Executor | null;
-  group_code_id: number;
-  max_voting_period: Duration;
-  members: Member[];
-  threshold: Threshold;
-  [k: string]: unknown;
-}
-export interface Member {
-  addr: string;
-  weight: number;
-  [k: string]: unknown;
-}
 export type QueryMsg = {
-  threshold: {
-    [k: string]: unknown;
-  };
+  threshold: {};
 } | {
   proposal: {
     proposal_id: number;
-    [k: string]: unknown;
   };
 } | {
   list_proposals: {
     limit?: number | null;
     start_after?: number | null;
-    [k: string]: unknown;
   };
 } | {
   reverse_proposals: {
     limit?: number | null;
     start_before?: number | null;
-    [k: string]: unknown;
   };
 } | {
   vote: {
     proposal_id: number;
     voter: string;
-    [k: string]: unknown;
   };
 } | {
   list_votes: {
     limit?: number | null;
     proposal_id: number;
     start_after?: string | null;
-    [k: string]: unknown;
   };
 } | {
   voter: {
     address: string;
-    [k: string]: unknown;
   };
 } | {
   list_voters: {
     limit?: number | null;
     start_after?: string | null;
-    [k: string]: unknown;
   };
 } | {
-  group: {
-    [k: string]: unknown;
+  group: {};
+};
+export type Cw4Contract = Addr;
+export interface GroupResponse {
+  group: Cw4Contract;
+}
+export type Status = "pending" | "open" | "rejected" | "passed" | "executed";
+export type ThresholdResponse = {
+  absolute_count: {
+    total_weight: number;
+    weight: number;
+  };
+} | {
+  absolute_percentage: {
+    percentage: Decimal;
+    total_weight: number;
+  };
+} | {
+  threshold_quorum: {
+    quorum: Decimal;
+    threshold: Decimal;
+    total_weight: number;
   };
 };
+export interface ProposalListResponseForEmpty {
+  proposals: ProposalResponseForEmpty[];
+}
+export interface ProposalResponseForEmpty {
+  description: string;
+  expires: Expiration;
+  id: number;
+  msgs: CosmosMsgForEmpty[];
+  status: Status;
+  threshold: ThresholdResponse;
+  title: string;
+}
+export interface VoterListResponse {
+  voters: VoterDetail[];
+}
+export interface VoterDetail {
+  addr: string;
+  weight: number;
+}
+export interface VoteListResponse {
+  votes: VoteInfo[];
+}
+export interface VoteInfo {
+  proposal_id: number;
+  vote: Vote;
+  voter: string;
+  weight: number;
+}
+export interface VoteResponse {
+  vote?: VoteInfo | null;
+}
+export interface VoterResponse {
+  weight?: number | null;
+}

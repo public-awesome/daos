@@ -6,7 +6,7 @@
 
 import { CosmWasmClient, SigningCosmWasmClient, ExecuteResult } from "@cosmjs/cosmwasm-stargate";
 import { StdFee } from "@cosmjs/amino";
-import { ExecuteMsg, Expiration, Timestamp, Uint64, CosmosMsgForEmpty, BankMsg, Uint128, StakingMsg, DistributionMsg, WasmMsg, Binary, Vote, Coin, Empty, Executor, Addr, Duration, Threshold, Decimal, InstantiateMsg, Member, QueryMsg } from "./SgGov.types";
+import { Executor, Addr, Group, Admin, Binary, Duration, Threshold, Decimal, InstantiateMsg, Cw4Instantiate, ExecuteMsg, Expiration, Timestamp, Uint64, CosmosMsgForEmpty, BankMsg, Uint128, WasmMsg, Vote, Coin, Empty, QueryMsg, Cw4Contract, GroupResponse, Status, ThresholdResponse, ProposalListResponseForEmpty, ProposalResponseForEmpty, VoterListResponse, VoterDetail, VoteListResponse, VoteInfo, VoteResponse, VoterResponse } from "./SgGov.types";
 export interface SgGovReadOnlyInterface {
   contractAddress: string;
   threshold: () => Promise<ThresholdResponse>;
@@ -14,21 +14,21 @@ export interface SgGovReadOnlyInterface {
     proposalId
   }: {
     proposalId: number;
-  }) => Promise<ProposalResponse>;
+  }) => Promise<ProposalResponseForEmpty>;
   listProposals: ({
     limit,
     startAfter
   }: {
     limit?: number;
     startAfter?: number;
-  }) => Promise<ListProposalsResponse>;
+  }) => Promise<ProposalListResponseForEmpty>;
   reverseProposals: ({
     limit,
     startBefore
   }: {
     limit?: number;
     startBefore?: number;
-  }) => Promise<ReverseProposalsResponse>;
+  }) => Promise<ProposalListResponseForEmpty>;
   vote: ({
     proposalId,
     voter
@@ -44,7 +44,7 @@ export interface SgGovReadOnlyInterface {
     limit?: number;
     proposalId: number;
     startAfter?: string;
-  }) => Promise<ListVotesResponse>;
+  }) => Promise<VoteListResponse>;
   voter: ({
     address
   }: {
@@ -56,7 +56,7 @@ export interface SgGovReadOnlyInterface {
   }: {
     limit?: number;
     startAfter?: string;
-  }) => Promise<ListVotersResponse>;
+  }) => Promise<VoterListResponse>;
   group: () => Promise<GroupResponse>;
 }
 export class SgGovQueryClient implements SgGovReadOnlyInterface {
@@ -86,7 +86,7 @@ export class SgGovQueryClient implements SgGovReadOnlyInterface {
     proposalId
   }: {
     proposalId: number;
-  }): Promise<ProposalResponse> => {
+  }): Promise<ProposalResponseForEmpty> => {
     return this.client.queryContractSmart(this.contractAddress, {
       proposal: {
         proposal_id: proposalId
@@ -99,7 +99,7 @@ export class SgGovQueryClient implements SgGovReadOnlyInterface {
   }: {
     limit?: number;
     startAfter?: number;
-  }): Promise<ListProposalsResponse> => {
+  }): Promise<ProposalListResponseForEmpty> => {
     return this.client.queryContractSmart(this.contractAddress, {
       list_proposals: {
         limit,
@@ -113,7 +113,7 @@ export class SgGovQueryClient implements SgGovReadOnlyInterface {
   }: {
     limit?: number;
     startBefore?: number;
-  }): Promise<ReverseProposalsResponse> => {
+  }): Promise<ProposalListResponseForEmpty> => {
     return this.client.queryContractSmart(this.contractAddress, {
       reverse_proposals: {
         limit,
@@ -143,7 +143,7 @@ export class SgGovQueryClient implements SgGovReadOnlyInterface {
     limit?: number;
     proposalId: number;
     startAfter?: string;
-  }): Promise<ListVotesResponse> => {
+  }): Promise<VoteListResponse> => {
     return this.client.queryContractSmart(this.contractAddress, {
       list_votes: {
         limit,
@@ -169,7 +169,7 @@ export class SgGovQueryClient implements SgGovReadOnlyInterface {
   }: {
     limit?: number;
     startAfter?: string;
-  }): Promise<ListVotersResponse> => {
+  }): Promise<VoterListResponse> => {
     return this.client.queryContractSmart(this.contractAddress, {
       list_voters: {
         limit,
