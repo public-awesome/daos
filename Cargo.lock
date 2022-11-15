@@ -802,6 +802,7 @@ dependencies = [
  "cw721-base",
  "schemars",
  "serde",
+ "sg-nft-group",
  "thiserror",
 ]
 

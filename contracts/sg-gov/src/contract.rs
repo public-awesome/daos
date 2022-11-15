@@ -272,6 +272,8 @@ pub fn reply(deps: DepsMut, _env: Env, msg: Reply) -> Result<Response, ContractE
                     }
                 })?);
 
+            // println!("sg-nft-group: {}", res.contract_address);
+
             let total_weight = group.total_weight(&deps.querier)?;
             let config = CONFIG.load(deps.storage)?;
             config.threshold.validate(total_weight)?;

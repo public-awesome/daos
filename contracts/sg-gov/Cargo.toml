@@ -46,6 +46,4 @@ cw-multi-test = "0.16.0"
 cw4-group = "0.16.0"
 cw721 = "0.16.0"
 cw721-base = { version = "0.16.0", features = ["library"] }
-# cw721-base = { git = "https://github.com/CosmWasm/cw-nfts", features = [
-#   "library",
-# ] }
+sg-nft-group = { path = "../sg-nft-group" }
