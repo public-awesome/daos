@@ -2,7 +2,7 @@
 mod tests {
     use crate::{
         contract::{CONTRACT_NAME, CONTRACT_VERSION},
-        msg::{Admin, Cw4Instantiate, ExecuteMsg, Group, GroupResponse, InstantiateMsg, QueryMsg},
+        msg::{ExecuteMsg, Group, GroupResponse, InstantiateMsg, QueryMsg},
         ContractError,
     };
     use cosmwasm_std::{
@@ -25,6 +25,7 @@ mod tests {
         next_block, App, AppBuilder, BankSudo, Contract, ContractWrapper, Executor, SudoMsg,
     };
     use cw_utils::{Duration, Expiration, Threshold, ThresholdResponse};
+    use sg_daos::{Admin, ContractInstantiateMsg};
 
     const OWNER: &str = "admin0001";
     const VOTER1: &str = "voter0001";
@@ -71,7 +72,8 @@ mod tests {
             sg_nft_group::contract::execute,
             sg_nft_group::contract::instantiate,
             sg_nft_group::contract::query,
-        );
+        )
+        .with_reply(sg_nft_group::contract::reply);
         Box::new(contract)
     }
 
@@ -94,17 +96,29 @@ mod tests {
     }
 
     /// create a sg_nft_group initialized with the given members
-    fn sg_nft_group_init_info(app: &mut App) -> Cw4Instantiate {
+    fn sg_nft_group_init_info(app: &mut App) -> ContractInstantiateMsg {
         let group_id = app.store_code(contract_nft_group());
 
-        let collection = instantiate_collection(app);
-        // println!("collection: {}", collection); // contract0
-
-        let msg = sg_nft_group::msg::InstantiateMsg {
-            collection: collection.to_string(),
+        let collection_code_id = app.store_code(contract_cw721());
+        let msg = Cw721InstantiateMsg {
+            name: "MemberCollection".to_string(),
+            symbol: "SGMC".to_string(),
+            minter: MINTER.into(),
         };
 
-        Cw4Instantiate {
+        let cw721_init_msg = ContractInstantiateMsg {
+            code_id: collection_code_id,
+            msg: to_binary(&msg).unwrap(),
+            admin: Some(Admin::Creator {}),
+            label: "MemberCollection".to_string(),
+        };
+
+        let msg = sg_nft_group::msg::InstantiateMsg {
+            collection: instantiate_collection(app).to_string(),
+            cw721_init_msg,
+        };
+
+        ContractInstantiateMsg {
             code_id: group_id,
             msg: to_binary(&msg).unwrap(),
             admin: Some(Admin::Creator {}),
@@ -113,15 +127,6 @@ mod tests {
     }
 
     fn mint_into_collection(app: &mut App, owner: String, token_id: String) {
-        // app.sudo(SudoMsg::Bank({
-        //     BankSudo::Mint {
-        //         to_address: owner.clone(),
-        //         amount: coins(100u128, "ustarx"),
-        //     }
-        // }))
-        // .map_err(|err| println!("{:?}", err))
-        // .ok();
-
         let mint_msg = Cw721ExecuteMsg::Mint::<Extension, Extension>(MintMsg::<Extension> {
             token_id,
             owner,

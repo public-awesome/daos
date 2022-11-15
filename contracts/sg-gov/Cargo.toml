@@ -37,6 +37,7 @@ cw3-flex-multisig = { version = "0.16.0", features = ["library"] }
 cw4 = "0.16.0"
 cw4-group = { version = "0.16.0", features = ["library"] }
 schemars = { workspace = true}
+sg-daos = { workspace = true }
 serde = { workspace = true }
 thiserror = { workspace = true }
 

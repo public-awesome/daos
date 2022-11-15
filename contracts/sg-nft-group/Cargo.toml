@@ -36,4 +36,5 @@ cw721-base = { version = "0.16.0", features = ["library"] }
 cw-storage-plus = { workspace = true }
 schemars = { workspace = true}
 serde = { workspace = true }
+sg-daos = { workspace = true }
 thiserror = { workspace = true }

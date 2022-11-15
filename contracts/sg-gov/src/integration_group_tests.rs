@@ -2,7 +2,7 @@
 mod tests {
     use crate::{
         contract::{CONTRACT_NAME, CONTRACT_VERSION},
-        msg::{Admin, Cw4Instantiate, ExecuteMsg, Group, GroupResponse, InstantiateMsg, QueryMsg},
+        msg::{ExecuteMsg, Group, GroupResponse, InstantiateMsg, QueryMsg},
         ContractError,
     };
     use cosmwasm_std::{
@@ -14,7 +14,6 @@ mod tests {
         ProposalListResponse, ProposalResponse, Status, Vote, VoteInfo, VoteListResponse,
         VoteResponse, VoterDetail, VoterListResponse,
     };
-    // use cw3_flex_multisig::state::Executor as Cw3Executor;
     use cw4::{Cw4ExecuteMsg, Member};
     use cw4_group::helpers::Cw4GroupContract;
     use cw721::{Cw721QueryMsg, OwnerOfResponse};
@@ -24,6 +23,7 @@ mod tests {
     };
     use cw_multi_test::{next_block, App, AppBuilder, Contract, ContractWrapper, Executor};
     use cw_utils::{Duration, Expiration, Threshold, ThresholdResponse};
+    use sg_daos::{Admin, ContractInstantiateMsg};
 
     const OWNER: &str = "admin0001";
     const VOTER1: &str = "voter0001";
@@ -70,8 +70,6 @@ mod tests {
         Box::new(contract)
     }
 
-    // TODO: also test with sg-nft-group
-
     pub fn contract_cw721() -> Box<dyn Contract<Empty>> {
         let contract = ContractWrapper::new(
             cw721_base::entry::execute,
@@ -91,10 +89,10 @@ mod tests {
     }
 
     /// create a cw4-group initialized with the given members
-    fn cw4_group_init_info(app: &mut App, members: Vec<Member>) -> Cw4Instantiate {
+    fn cw4_group_init_info(app: &mut App, members: Vec<Member>) -> ContractInstantiateMsg {
         let group_id = app.store_code(contract_group());
 
-        Cw4Instantiate {
+        ContractInstantiateMsg {
             code_id: group_id,
             msg: to_binary(&cw4_group::msg::InstantiateMsg {
                 admin: Some(Addr::unchecked(OWNER).to_string()),

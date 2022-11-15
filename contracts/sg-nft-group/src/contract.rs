@@ -3,20 +3,17 @@ use std::marker::PhantomData;
 #[cfg(not(feature = "library"))]
 use cosmwasm_std::entry_point;
 use cosmwasm_std::{
-    to_binary, Addr, Binary, Deps, DepsMut, Empty, Env, MessageInfo, Order, Response, StdResult,
-    Storage, SubMsg, WasmMsg,
+    to_binary, Addr, Binary, Deps, DepsMut, Empty, Env, MessageInfo, Order, Reply, Response,
+    StdResult, Storage, SubMsg, WasmMsg,
 };
 
 use cw2::set_contract_version;
 use cw4::{Member, MemberListResponse, MemberResponse, TotalWeightResponse};
 use cw721::Cw721ReceiveMsg;
 use cw721_base::helpers::Cw721Contract;
-use cw721_base::{
-    ExecuteMsg as Cw721BaseExecuteMsg, InstantiateMsg as Cw721BaseInstantiateMsg,
-    MintMsg as Cw721BaseMintMsg,
-};
+use cw721_base::{ExecuteMsg as Cw721BaseExecuteMsg, MintMsg as Cw721BaseMintMsg};
 use cw_storage_plus::Bound;
-use cw_utils::maybe_addr;
+use cw_utils::{maybe_addr, parse_reply_instantiate_data};
 
 use crate::error::ContractError;
 use crate::msg::{ExecuteMsg, InstantiateMsg, QueryMsg};
@@ -25,6 +22,8 @@ use crate::state::{Config, CONFIG, MEMBERS, MEMBER_COLLECTION, TOTAL};
 // version info for migration info
 const CONTRACT_NAME: &str = "crates.io:sg-nft-group";
 const CONTRACT_VERSION: &str = env!("CARGO_PKG_VERSION");
+
+const INIT_REPLY_ID: u64 = 1;
 
 // Instantiate a group for the specified collection
 #[cfg_attr(not(feature = "library"), entry_point)]
@@ -43,21 +42,35 @@ pub fn instantiate(
     CONFIG.save(deps.storage, &config)?;
     TOTAL.save(deps.storage, &0)?;
 
-    // TODO: instantiate internal members collection
-    let msg = Cw721BaseInstantiateMsg {
-        name: "NFT-Group".to_string(),
-        symbol: "SGNFT".to_string(),
-        minter: String::from(env.contract.address),
-    };
-    let collection_msg = WasmMsg::Instantiate {
-        admin: (),
-        code_id: (),
-        msg: (),
-        funds: (),
-        label: (),
-    };
+    let submsg = SubMsg::reply_always(
+        msg.cw721_init_msg.into_wasm_msg(env.contract.address),
+        INIT_REPLY_ID,
+    );
 
-    Ok(Response::default())
+    Ok(Response::default().add_submessage(submsg))
+}
+
+#[cfg_attr(not(feature = "library"), entry_point)]
+pub fn reply(deps: DepsMut, _env: Env, msg: Reply) -> Result<Response, ContractError> {
+    if msg.id != INIT_REPLY_ID {
+        return Err(ContractError::InvalidReplyID {});
+    }
+
+    let reply = parse_reply_instantiate_data(msg);
+    match reply {
+        Ok(res) => {
+            // let group =
+            //     Cw4Contract(deps.api.addr_validate(&res.contract_address).map_err(|_| {
+            //         ContractError::InvalidGroup {
+            //             addr: res.contract_address.clone(),
+            //         }
+            //     })?);
+            MEMBER_COLLECTION.save(deps.storage, &Addr::unchecked(res.contract_address))?;
+
+            Ok(Response::default().add_attribute("action", "reply_on_success"))
+        }
+        Err(_) => Err(ContractError::ReplyOnSuccess {}),
+    }
 }
 
 // And declare a custom Error variant for the ones where you will want to make use of it
@@ -174,19 +187,11 @@ fn join(store: &dyn Storage, token_id: &str, owner: &str) -> StdResult<SubMsg> {
     };
     let msg = Cw721BaseExecuteMsg::Mint::<Empty, Empty>(mint_msg);
 
-    println!("join................1");
-    let addr = MEMBER_COLLECTION.load(store)?.to_string();
-    println!("collection {}", addr);
-
-    // TODO: COLLECTION was never instantiated..
-
     let msg = WasmMsg::Execute {
         contract_addr: MEMBER_COLLECTION.load(store)?.to_string(),
         msg: to_binary(&msg)?,
         funds: vec![],
     };
-
-    println!("join................2");
 
     Ok(SubMsg::new(msg))
 }
@@ -272,34 +277,4 @@ fn list_members(
         .collect::<StdResult<_>>()?;
 
     Ok(MemberListResponse { members })
-}
-
-#[cfg(test)]
-mod tests {
-    use cosmwasm_std::testing::{mock_dependencies, mock_env, mock_info};
-
-    use super::*;
-
-    const CW721_ADDRESS: &str = "wasm1234567890";
-
-    fn default_instantiate(deps: DepsMut) {
-        do_instantiate(deps, CW721_ADDRESS)
-    }
-
-    fn do_instantiate(deps: DepsMut, collection: &str) {
-        let msg = InstantiateMsg {
-            collection: collection.to_string(),
-        };
-        let info = mock_info("creator", &[]);
-        instantiate(deps, mock_env(), info, msg).unwrap();
-    }
-
-    #[test]
-    fn proper_instantiation() {
-        let mut deps = mock_dependencies();
-        default_instantiate(deps.as_mut());
-
-        let res = query_total_weight(deps.as_ref()).unwrap();
-        assert_eq!(0, res.weight);
-    }
 }

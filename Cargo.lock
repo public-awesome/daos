@@ -812,6 +812,7 @@ dependencies = [
  "cw721-base",
  "schemars",
  "serde",
+ "sg-daos",
  "sg-nft-group",
  "thiserror",
 ]
@@ -831,6 +832,7 @@ dependencies = [
  "cw721-base",
  "schemars",
  "serde",
+ "sg-daos",
  "thiserror",
 ]
 

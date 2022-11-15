@@ -1,10 +1,13 @@
 use cosmwasm_schema::{cw_serde, QueryResponses};
 use cw721::Cw721ReceiveMsg;
+use sg_daos::ContractInstantiateMsg;
 
 #[cw_serde]
 pub struct InstantiateMsg {
     /// The collection used for membership
     pub collection: String,
+    /// Info for instantiating the internal member collection
+    pub cw721_init_msg: ContractInstantiateMsg,
 }
 
 #[cw_serde]

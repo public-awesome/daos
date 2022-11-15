@@ -15,6 +15,9 @@ pub enum ContractError {
     #[error("Must send '{0}' to stake")]
     MissingDenom(String),
 
+    #[error("Invalid reply ID")]
+    InvalidReplyID {},
+
     #[error("Sent unsupported denoms, must send '{0}' to stake")]
     ExtraDenoms(String),
 
@@ -32,4 +35,7 @@ pub enum ContractError {
 
     #[error("Invalid collection")]
     InvalidCollection { received: Addr, expected: Addr },
+
+    #[error("Reply error")]
+    ReplyOnSuccess {},
 }
