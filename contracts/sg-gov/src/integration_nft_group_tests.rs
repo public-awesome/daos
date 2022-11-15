@@ -147,7 +147,7 @@ mod tests {
     fn mint_and_join_nft_group(app: &mut App, members: Vec<Member>) {
         for member in members {
             for i in 0..member.weight {
-                let token_id = format!("{}{}", member.clone().addr, i);
+                let token_id = format!("{}/{}", member.clone().addr, i);
                 mint_into_collection(app, token_id.clone());
                 join_group(app, member.clone().addr, token_id);
             }
