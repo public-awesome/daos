@@ -157,11 +157,19 @@ fn join(store: &dyn Storage, token_id: &str, owner: &str) -> StdResult<SubMsg> {
     };
     let msg = Cw721BaseExecuteMsg::Mint::<Empty, Empty>(mint_msg);
 
+    println!("join................1");
+    let addr = COLLECTION.load(store)?.to_string();
+    println!("collection {}", addr);
+
+    // TODO: COLLECTION was never instantiated..
+
     let msg = WasmMsg::Execute {
         contract_addr: COLLECTION.load(store)?.to_string(),
         msg: to_binary(&msg)?,
         funds: vec![],
     };
+
+    println!("join................2");
 
     Ok(SubMsg::new(msg))
 }

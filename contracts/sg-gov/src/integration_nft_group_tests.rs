@@ -21,7 +21,9 @@ mod tests {
         msg::{ExecuteMsg as Cw721ExecuteMsg, InstantiateMsg as Cw721InstantiateMsg},
         Extension, MintMsg,
     };
-    use cw_multi_test::{next_block, App, AppBuilder, Contract, ContractWrapper, Executor};
+    use cw_multi_test::{
+        next_block, App, AppBuilder, BankSudo, Contract, ContractWrapper, Executor, SudoMsg,
+    };
     use cw_utils::{Duration, Expiration, Threshold, ThresholdResponse};
 
     const OWNER: &str = "admin0001";
@@ -110,10 +112,19 @@ mod tests {
         }
     }
 
-    fn mint_into_collection(app: &mut App, token_id: String) {
+    fn mint_into_collection(app: &mut App, owner: String, token_id: String) {
+        // app.sudo(SudoMsg::Bank({
+        //     BankSudo::Mint {
+        //         to_address: owner.clone(),
+        //         amount: coins(100u128, "ustarx"),
+        //     }
+        // }))
+        // .map_err(|err| println!("{:?}", err))
+        // .ok();
+
         let mint_msg = Cw721ExecuteMsg::Mint::<Extension, Extension>(MintMsg::<Extension> {
             token_id,
-            owner: OWNER.into(),
+            owner,
             token_uri: None,
             extension: None,
         });
@@ -137,7 +148,7 @@ mod tests {
         };
         app.execute_contract(
             Addr::unchecked(sender),
-            Addr::unchecked(SG_NFT_GROUP_CONTRACT),
+            Addr::unchecked(COLLECTION_CONTRACT),
             &send_nft_msg,
             &[],
         )
@@ -148,7 +159,7 @@ mod tests {
         for member in members {
             for i in 0..member.weight {
                 let token_id = format!("{}/{}", member.clone().addr, i);
-                mint_into_collection(app, token_id.clone());
+                mint_into_collection(app, member.clone().addr, token_id.clone());
                 join_group(app, member.clone().addr, token_id);
             }
         }

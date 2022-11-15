@@ -215,52 +215,53 @@ mod tests {
 
         let members = vec![member(OWNER, 1)];
 
-        // Zero required weight fails
-        let instantiate_msg = InstantiateMsg {
-            group: Group::Cw4Instantiate(cw4_group_init_info(&mut app, members.clone())),
-            threshold: Threshold::ThresholdQuorum {
-                threshold: Decimal::zero(),
-                quorum: Decimal::percent(1),
-            },
-            max_voting_period,
-            executor: None,
-        };
-        let err = app
-            .instantiate_contract(
-                nft_dao_id,
-                Addr::unchecked(OWNER),
-                &instantiate_msg,
-                &[],
-                "zero required weight",
-                None,
-            )
-            .unwrap_err();
-        assert_eq!(
-            ContractError::Threshold(cw_utils::ThresholdError::InvalidThreshold {}),
-            err.downcast().unwrap()
-        );
+        // NOTE: Allow zero weights to support empty NFT groups
+        // // Zero required weight fails
+        // let instantiate_msg = InstantiateMsg {
+        //     group: Group::Cw4Instantiate(cw4_group_init_info(&mut app, members.clone())),
+        //     threshold: Threshold::ThresholdQuorum {
+        //         threshold: Decimal::zero(),
+        //         quorum: Decimal::percent(1),
+        //     },
+        //     max_voting_period,
+        //     executor: None,
+        // };
+        // let err = app
+        //     .instantiate_contract(
+        //         nft_dao_id,
+        //         Addr::unchecked(OWNER),
+        //         &instantiate_msg,
+        //         &[],
+        //         "zero required weight",
+        //         None,
+        //     )
+        //     .unwrap_err();
+        // assert_eq!(
+        //     ContractError::Threshold(cw_utils::ThresholdError::InvalidThreshold {}),
+        //     err.downcast().unwrap()
+        // );
 
-        // Total weight less than required weight not allowed
-        let instantiate_msg = InstantiateMsg {
-            group: Group::Cw4Instantiate(cw4_group_init_info(&mut app, members.clone())),
-            threshold: Threshold::AbsoluteCount { weight: 100 },
-            max_voting_period,
-            executor: None,
-        };
-        let err = app
-            .instantiate_contract(
-                nft_dao_id,
-                Addr::unchecked(OWNER),
-                &instantiate_msg,
-                &[],
-                "high required weight",
-                None,
-            )
-            .unwrap_err();
-        assert_eq!(
-            ContractError::Threshold(cw_utils::ThresholdError::UnreachableWeight {}),
-            err.downcast().unwrap()
-        );
+        // // Total weight less than required weight not allowed
+        // let instantiate_msg = InstantiateMsg {
+        //     group: Group::Cw4Instantiate(cw4_group_init_info(&mut app, members.clone())),
+        //     threshold: Threshold::AbsoluteCount { weight: 100 },
+        //     max_voting_period,
+        //     executor: None,
+        // };
+        // let err = app
+        //     .instantiate_contract(
+        //         nft_dao_id,
+        //         Addr::unchecked(OWNER),
+        //         &instantiate_msg,
+        //         &[],
+        //         "high required weight",
+        //         None,
+        //     )
+        //     .unwrap_err();
+        // assert_eq!(
+        //     ContractError::Threshold(cw_utils::ThresholdError::UnreachableWeight {}),
+        //     err.downcast().unwrap()
+        // );
 
         // All valid
         let instantiate_msg = InstantiateMsg {
