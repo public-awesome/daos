@@ -11,13 +11,16 @@ use cw2::set_contract_version;
 use cw4::{Member, MemberListResponse, MemberResponse, TotalWeightResponse};
 use cw721::Cw721ReceiveMsg;
 use cw721_base::helpers::Cw721Contract;
-use cw721_base::{ExecuteMsg as Cw721BaseExecuteMsg, MintMsg as Cw721BaseMintMsg};
+use cw721_base::{
+    ExecuteMsg as Cw721BaseExecuteMsg, InstantiateMsg as Cw721BaseInstantiateMsg,
+    MintMsg as Cw721BaseMintMsg,
+};
 use cw_storage_plus::Bound;
 use cw_utils::maybe_addr;
 
 use crate::error::ContractError;
 use crate::msg::{ExecuteMsg, InstantiateMsg, QueryMsg};
-use crate::state::{Config, COLLECTION, CONFIG, MEMBERS, TOTAL};
+use crate::state::{Config, CONFIG, MEMBERS, MEMBER_COLLECTION, TOTAL};
 
 // version info for migration info
 const CONTRACT_NAME: &str = "crates.io:sg-nft-group";
@@ -27,7 +30,7 @@ const CONTRACT_VERSION: &str = env!("CARGO_PKG_VERSION");
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn instantiate(
     deps: DepsMut,
-    _env: Env,
+    env: Env,
     _info: MessageInfo,
     msg: InstantiateMsg,
 ) -> Result<Response, ContractError> {
@@ -39,6 +42,20 @@ pub fn instantiate(
     };
     CONFIG.save(deps.storage, &config)?;
     TOTAL.save(deps.storage, &0)?;
+
+    // TODO: instantiate internal members collection
+    let msg = Cw721BaseInstantiateMsg {
+        name: "NFT-Group".to_string(),
+        symbol: "SGNFT".to_string(),
+        minter: String::from(env.contract.address),
+    };
+    let collection_msg = WasmMsg::Instantiate {
+        admin: (),
+        code_id: (),
+        msg: (),
+        funds: (),
+        label: (),
+    };
 
     Ok(Response::default())
 }
@@ -100,7 +117,7 @@ pub fn execute_remove(
     only_owner(
         deps.as_ref(),
         &member,
-        &COLLECTION.load(deps.storage)?,
+        &MEMBER_COLLECTION.load(deps.storage)?,
         &token_id,
     )?;
 
@@ -158,13 +175,13 @@ fn join(store: &dyn Storage, token_id: &str, owner: &str) -> StdResult<SubMsg> {
     let msg = Cw721BaseExecuteMsg::Mint::<Empty, Empty>(mint_msg);
 
     println!("join................1");
-    let addr = COLLECTION.load(store)?.to_string();
+    let addr = MEMBER_COLLECTION.load(store)?.to_string();
     println!("collection {}", addr);
 
     // TODO: COLLECTION was never instantiated..
 
     let msg = WasmMsg::Execute {
-        contract_addr: COLLECTION.load(store)?.to_string(),
+        contract_addr: MEMBER_COLLECTION.load(store)?.to_string(),
         msg: to_binary(&msg)?,
         funds: vec![],
     };
@@ -187,7 +204,7 @@ fn leave(store: &dyn Storage, token_id: &str, member: &str) -> StdResult<Vec<Sub
     };
 
     let burn_msg = WasmMsg::Execute {
-        contract_addr: COLLECTION.load(store)?.to_string(),
+        contract_addr: MEMBER_COLLECTION.load(store)?.to_string(),
         msg: to_binary(&Cw721BaseExecuteMsg::Burn::<Empty, Empty> {
             token_id: token_id.to_string(),
         })?,
