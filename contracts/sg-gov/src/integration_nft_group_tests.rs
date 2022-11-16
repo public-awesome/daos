@@ -103,7 +103,7 @@ mod tests {
         let msg = Cw721InstantiateMsg {
             name: "MemberCollection".to_string(),
             symbol: "SGMC".to_string(),
-            minter: MINTER.into(),
+            minter: "contract3".to_string(),
         };
 
         let cw721_init_msg = ContractInstantiateMsg {
@@ -145,6 +145,20 @@ mod tests {
 
     fn join_group(app: &mut App, sender: String, token_id: String) {
         let msg = to_binary("This is unused").unwrap();
+
+        // NOTE: Not needed since its the sender calling send
+        // let approve_msg = Cw721ExecuteMsg::Approve::<Extension, Extension> {
+        //     spender: COLLECTION_CONTRACT.to_string(),
+        //     token_id: token_id.clone(),
+        //     expires: None,
+        // };
+        // app.execute_contract(
+        //     Addr::unchecked(sender.clone()),
+        //     Addr::unchecked(COLLECTION_CONTRACT),
+        //     &approve_msg,
+        //     &[],
+        // )
+        // .unwrap();
 
         let send_nft_msg = Cw721ExecuteMsg::SendNft::<Extension, Extension> {
             contract: SG_NFT_GROUP_CONTRACT.to_string(),
