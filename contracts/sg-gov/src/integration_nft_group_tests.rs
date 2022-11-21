@@ -37,7 +37,8 @@ mod tests {
 
     const COLLECTION_CONTRACT: &str = "contract0";
     const SG_NFT_GROUP_CONTRACT: &str = "contract1";
-    const SG_DAO_CONTRACT: &str = "contract2";
+    const MEMBERSHIP_COLLECTION_CONTRACT: &str = "contract2";
+    const SG_DAO_CONTRACT: &str = "contract3";
 
     fn member<T: Into<String>>(addr: T, weight: u64) -> Member {
         Member {
@@ -180,20 +181,28 @@ mod tests {
     ) -> Addr {
         let dao_id = app.store_code(contract_nft_dao());
 
-        let nft_group = sg_nft_group_init_info(app);
+        let init_group = sg_nft_group_init_info(app);
+        let init_msg: sg_nft_group::msg::InstantiateMsg = from_binary(&init_group.msg).unwrap();
+        let group_addr = app.instantiate_contract(
+            init_group.code_id, 
+            Addr::unchecked(OWNER), 
+            &init_msg,
+            &[], 
+            init_group.label, 
+            None,
+        ).unwrap();
+        println!(">>> group_addr {}", group_addr.clone());
         let msg = InstantiateMsg {
-            group: Group::Cw4Instantiate(nft_group),
+            group: Group::Cw4Address(group_addr.to_string()),
             threshold,
             max_voting_period,
             executor,
         };
+        mint_and_join_nft_group(app, members());
         let addr = app
             .instantiate_contract(dao_id, Addr::unchecked(OWNER), &msg, &[], "dao", None)
             .unwrap();
-        // println!("sg-gov: {}", addr); // contract1
-
-        mint_and_join_nft_group(app, members());
-
+        println!(">>> DAO {}", addr);
         addr
     }
 
@@ -395,16 +404,13 @@ mod tests {
     // fn test_instantiate_works() {
     //     let mut app = mock_app(&[]);
 
-    //     // make a simple group
     //     let nft_dao_id = app.store_code(contract_nft_dao());
     //     let max_voting_period = Duration::Time(1234567);
-
     //     let members = vec![member(OWNER, 1)];
-
 
     //     // Zero required weight fails
     //     let instantiate_msg = InstantiateMsg {
-    //         group: Group::Cw4Instantiate(),
+    //         group: Group::Cw4Instantiate(sg_nft_group_init_info(&mut app)),
     //         threshold: Threshold::ThresholdQuorum {
     //             threshold: Decimal::zero(),
     //             quorum: Decimal::percent(1),
@@ -514,12 +520,19 @@ mod tests {
             .execute_contract(Addr::unchecked(SOMEBODY), dao_addr.clone(), &proposal, &[])
             .unwrap_err();
         assert_eq!(ContractError::Unauthorized {}, err.downcast().unwrap());
+        
+        // 0 weight is not a voter
+        let err = app
+            .execute_contract(Addr::unchecked(OWNER), dao_addr.clone(), &proposal, &[])
+            .unwrap_err();
+        assert_eq!(ContractError::Unauthorized {}, err.downcast().unwrap());
 
         // Wrong expiration option fails
         let msgs = match proposal.clone() {
             ExecuteMsg::Propose { msgs, .. } => msgs,
             _ => panic!("Wrong variant"),
         };
+
         let proposal_wrong_exp = ExecuteMsg::Propose {
             title: "Rewarding somebody".to_string(),
             description: "Do we reward her?".to_string(),
@@ -528,7 +541,7 @@ mod tests {
         };
         let err = app
             .execute_contract(
-                Addr::unchecked(OWNER),
+                Addr::unchecked(VOTER1),
                 dao_addr.clone(),
                 &proposal_wrong_exp,
                 &[],
@@ -706,10 +719,10 @@ mod tests {
         let voting_period = Duration::Time(2000000);
         let dao_addr = setup_test_case(&mut app, threshold, voting_period, init_funds, false, None);
 
-        // create proposal with 0 vote power
+        // create proposal
         let proposal = pay_somebody_proposal();
         let res = app
-            .execute_contract(Addr::unchecked(OWNER), dao_addr.clone(), &proposal, &[])
+            .execute_contract(Addr::unchecked(VOTER1), dao_addr.clone(), &proposal, &[])
             .unwrap();
 
         // Get the proposal id from the logs
