@@ -7,7 +7,7 @@ mod tests {
     };
     use cosmwasm_std::{
         coin, coins, to_binary, Addr, BankMsg, BlockInfo, Coin, CosmosMsg, Decimal, Empty,
-        Timestamp, WasmMsg,
+        Timestamp, WasmMsg, from_binary, Querier,
     };
     use cw2::{query_contract_info, ContractVersion};
     use cw3::{
@@ -36,8 +36,8 @@ mod tests {
     const SOMEBODY: &str = "somebody";
 
     const COLLECTION_CONTRACT: &str = "contract0";
-    // const SG_GOV_CONTRACT: &str = "contract1";
-    const SG_NFT_GROUP_CONTRACT: &str = "contract2";
+    const SG_NFT_GROUP_CONTRACT: &str = "contract1";
+    const SG_DAO_CONTRACT: &str = "contract2";
 
     fn member<T: Into<String>>(addr: T, weight: u64) -> Member {
         Member {
@@ -98,12 +98,12 @@ mod tests {
     /// create a sg_nft_group initialized with the given members
     fn sg_nft_group_init_info(app: &mut App) -> ContractInstantiateMsg {
         let group_id = app.store_code(contract_nft_group());
-
         let collection_code_id = app.store_code(contract_cw721());
+
         let msg = Cw721InstantiateMsg {
             name: "MemberCollection".to_string(),
             symbol: "SGMC".to_string(),
-            minter: "contract3".to_string(),
+            minter: SG_NFT_GROUP_CONTRACT.to_string(),
         };
 
         let cw721_init_msg = ContractInstantiateMsg {
@@ -113,8 +113,9 @@ mod tests {
             label: "MemberCollection".to_string(),
         };
 
+        let collection = instantiate_collection(app);
         let msg = sg_nft_group::msg::InstantiateMsg {
-            collection: instantiate_collection(app).to_string(),
+            collection: collection.clone().to_string(),
             cw721_init_msg,
         };
 
@@ -145,20 +146,6 @@ mod tests {
 
     fn join_group(app: &mut App, sender: String, token_id: String) {
         let msg = to_binary("This is unused").unwrap();
-
-        // NOTE: Not needed since its the sender calling send
-        // let approve_msg = Cw721ExecuteMsg::Approve::<Extension, Extension> {
-        //     spender: COLLECTION_CONTRACT.to_string(),
-        //     token_id: token_id.clone(),
-        //     expires: None,
-        // };
-        // app.execute_contract(
-        //     Addr::unchecked(sender.clone()),
-        //     Addr::unchecked(COLLECTION_CONTRACT),
-        //     &approve_msg,
-        //     &[],
-        // )
-        // .unwrap();
 
         let send_nft_msg = Cw721ExecuteMsg::SendNft::<Extension, Extension> {
             contract: SG_NFT_GROUP_CONTRACT.to_string(),
@@ -193,8 +180,9 @@ mod tests {
     ) -> Addr {
         let dao_id = app.store_code(contract_nft_dao());
 
+        let nft_group = sg_nft_group_init_info(app);
         let msg = InstantiateMsg {
-            group: Group::Cw4Instantiate(sg_nft_group_init_info(app)),
+            group: Group::Cw4Instantiate(nft_group),
             threshold,
             max_voting_period,
             executor,
@@ -290,30 +278,38 @@ mod tests {
     }
 
     #[test]
-    fn test_instantiate_works() {
+    fn test_instantiate_existing_group() {
         let mut app = mock_app(&[]);
 
-        // make a simple group
         let nft_dao_id = app.store_code(contract_nft_dao());
         let max_voting_period = Duration::Time(1234567);
-
         let members = vec![member(OWNER, 1)];
 
-        // Zero required weight fails
-        let instantiate_msg = InstantiateMsg {
-            group: Group::Cw4Instantiate(sg_nft_group_init_info(&mut app)),
-            threshold: Threshold::ThresholdQuorum {
-                threshold: Decimal::zero(),
-                quorum: Decimal::percent(1),
-            },
-            max_voting_period,
-            executor: None,
-        };
+        let init_group = sg_nft_group_init_info(&mut app);
+        let init_msg: sg_nft_group::msg::InstantiateMsg = from_binary(&init_group.msg).unwrap();
+        let group_addr = app.instantiate_contract(
+            init_group.code_id, 
+            Addr::unchecked(OWNER), 
+            &init_msg,
+            &[], 
+            init_group.label, 
+            None,
+        ).unwrap();
+
+        // Zero required weight (threshold) fails
         let err = app
             .instantiate_contract(
                 nft_dao_id,
                 Addr::unchecked(OWNER),
-                &instantiate_msg,
+                &InstantiateMsg {
+                    group: Group::Cw4Address(group_addr.clone().to_string()),
+                    threshold: Threshold::ThresholdQuorum {
+                        threshold: Decimal::zero(),
+                        quorum: Decimal::percent(1),
+                    },
+                    max_voting_period,
+                    executor: None,
+                },
                 &[],
                 "zero required weight",
                 None,
@@ -323,20 +319,18 @@ mod tests {
             ContractError::Threshold(cw_utils::ThresholdError::InvalidThreshold {}),
             err.downcast().unwrap()
         );
-        mint_and_join_nft_group(&mut app, members.clone());
 
-        // Total weight less than required weight not allowed
-        let instantiate_msg = InstantiateMsg {
-            group: Group::Cw4Instantiate(sg_nft_group_init_info(&mut app)),
-            threshold: Threshold::AbsoluteCount { weight: 100 },
-            max_voting_period,
-            executor: None,
-        };
+        // Total weight (0) less than required weight not allowed
         let err = app
             .instantiate_contract(
                 nft_dao_id,
                 Addr::unchecked(OWNER),
-                &instantiate_msg,
+                &InstantiateMsg {
+                    group: Group::Cw4Address(group_addr.clone().to_string()),
+                    threshold: Threshold::AbsoluteCount { weight: 100 },
+                    max_voting_period,
+                    executor: None,
+                },
                 &[],
                 "high required weight",
                 None,
@@ -346,26 +340,26 @@ mod tests {
             ContractError::Threshold(cw_utils::ThresholdError::UnreachableWeight {}),
             err.downcast().unwrap()
         );
-        mint_and_join_nft_group(&mut app, members.clone());
+        println!("2");
 
         // All valid
-        let instantiate_msg = InstantiateMsg {
-            group: Group::Cw4Instantiate(sg_nft_group_init_info(&mut app)),
-            threshold: Threshold::AbsoluteCount { weight: 1 },
-            max_voting_period,
-            executor: None,
-        };
+        mint_and_join_nft_group(&mut app, members);
         let dao_addr = app
             .instantiate_contract(
                 nft_dao_id,
                 Addr::unchecked(OWNER),
-                &instantiate_msg,
+                &InstantiateMsg {
+                    group: Group::Cw4Address(group_addr.to_string()),
+                    threshold: Threshold::AbsoluteCount { weight: 1 },
+                    max_voting_period,
+                    executor: None,
+                },
                 &[],
                 "all good",
                 None,
             )
             .unwrap();
-        mint_and_join_nft_group(&mut app, members);
+        println!("3 {}", dao_addr);
 
         // Verify contract version set properly
         let version = query_contract_info(&app, dao_addr.clone()).unwrap();
@@ -396,6 +390,113 @@ mod tests {
             }]
         );
     }
+
+    // #[test]
+    // fn test_instantiate_works() {
+    //     let mut app = mock_app(&[]);
+
+    //     // make a simple group
+    //     let nft_dao_id = app.store_code(contract_nft_dao());
+    //     let max_voting_period = Duration::Time(1234567);
+
+    //     let members = vec![member(OWNER, 1)];
+
+
+    //     // Zero required weight fails
+    //     let instantiate_msg = InstantiateMsg {
+    //         group: Group::Cw4Instantiate(),
+    //         threshold: Threshold::ThresholdQuorum {
+    //             threshold: Decimal::zero(),
+    //             quorum: Decimal::percent(1),
+    //         },
+    //         max_voting_period,
+    //         executor: None,
+    //     };
+    //     let err = app
+    //         .instantiate_contract(
+    //             nft_dao_id,
+    //             Addr::unchecked(OWNER),
+    //             &instantiate_msg,
+    //             &[],
+    //             "zero required weight",
+    //             None,
+    //         )
+    //         .unwrap_err();
+    //     assert_eq!(
+    //         ContractError::Threshold(cw_utils::ThresholdError::InvalidThreshold {}),
+    //         err.downcast().unwrap()
+    //     );
+
+    //     // Total weight less than required weight not allowed
+    //     let instantiate_msg = InstantiateMsg {
+    //         group: Group::Cw4Instantiate(sg_nft_group_init_info(&mut app)),
+    //         threshold: Threshold::AbsoluteCount { weight: 100 },
+    //         max_voting_period,
+    //         executor: None,
+    //     };
+    //     let err = app
+    //         .instantiate_contract(
+    //             nft_dao_id,
+    //             Addr::unchecked(OWNER),
+    //             &instantiate_msg,
+    //             &[],
+    //             "high required weight",
+    //             None,
+    //         )
+    //         .unwrap_err();
+    //     assert_eq!(
+    //         ContractError::Threshold(cw_utils::ThresholdError::UnreachableWeight {}),
+    //         err.downcast().unwrap()
+    //     );
+
+    //     // All valid
+    //     mint_and_join_nft_group(&mut app, members);
+    //     let instantiate_msg = InstantiateMsg {
+    //         group: Group::Cw4Instantiate(sg_nft_group_init_info(&mut app)),
+    //         threshold: Threshold::AbsoluteCount { weight: 1 },
+    //         max_voting_period,
+    //         executor: None,
+    //     };
+    //     let dao_addr = app
+    //         .instantiate_contract(
+    //             nft_dao_id,
+    //             Addr::unchecked(OWNER),
+    //             &instantiate_msg,
+    //             &[],
+    //             "all good",
+    //             None,
+    //         )
+    //         .unwrap();
+
+    //     // // Verify contract version set properly
+    //     // let version = query_contract_info(&app, dao_addr.clone()).unwrap();
+    //     // assert_eq!(
+    //     //     ContractVersion {
+    //     //         contract: CONTRACT_NAME.to_string(),
+    //     //         version: CONTRACT_VERSION.to_string(),
+    //     //     },
+    //     //     version,
+    //     // );
+
+    //     // // Get voters query
+    //     // let voters: VoterListResponse = app
+    //     //     .wrap()
+    //     //     .query_wasm_smart(
+    //     //         &dao_addr,
+    //     //         &QueryMsg::ListVoters {
+    //     //             start_after: None,
+    //     //             limit: None,
+    //     //         },
+    //     //     )
+    //     //     .unwrap();
+    //     // assert_eq!(
+    //     //     voters.voters,
+    //     //     vec![VoterDetail {
+    //     //         addr: OWNER.into(),
+    //     //         weight: 1
+    //     //     }]
+    //     // );
+    // }
 
     #[test]
     fn test_propose_works() {

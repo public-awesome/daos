@@ -38,7 +38,7 @@ pub fn instantiate(
     let self_addr = env.contract.address;
 
     let cfg = Config {
-        threshold: msg.threshold,
+        threshold: msg.threshold.clone(),
         max_voting_period: msg.max_voting_period,
         executor: msg.executor,
     };
@@ -49,7 +49,12 @@ pub fn instantiate(
             SubMsg::reply_on_success(init.into_wasm_msg(self_addr), INIT_GROUP_REPLY_ID),
         )),
         Group::Cw4Address(addr) => {
-            GROUP.save(deps.storage, &Cw4Contract(deps.api.addr_validate(&addr)?))?;
+            let group_addr = deps.api.addr_validate(&addr)?;
+            let total_group_weight = Cw4Contract(group_addr.clone()).total_weight(&deps.querier)?; 
+
+            msg.threshold.validate(total_group_weight)?;
+
+            GROUP.save(deps.storage, &Cw4Contract(group_addr))?;
             Ok(Response::default())
         }
     }
@@ -107,7 +112,6 @@ pub fn execute_propose(
     let vote_power = group
         .is_member(&deps.querier, &info.sender, None)?
         .ok_or(ContractError::Unauthorized {})?;
-
     // max expires also used as default
     let max_expires = cfg.max_voting_period.after(&env.block);
     let mut expires = latest.unwrap_or(max_expires);
@@ -271,12 +275,6 @@ pub fn reply(deps: DepsMut, _env: Env, msg: Reply) -> Result<Response, ContractE
                         addr: res.contract_address.clone(),
                     }
                 })?);
-
-            // println!("sg-nft-group: {}", res.contract_address);
-
-            // let total_weight = group.total_weight(&deps.querier)?;
-            // let config = CONFIG.load(deps.storage)?;
-            // config.threshold.validate(total_weight)?;
 
             GROUP.save(deps.storage, &group)?;
 
