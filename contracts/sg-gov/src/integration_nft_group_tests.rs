@@ -215,7 +215,6 @@ mod tests {
         weight_needed: u64,
         max_voting_period: Duration,
         init_funds: Vec<Coin>,
-        multisig_as_group_admin: bool,
     ) -> Addr {
         setup_test_case(
             app,
@@ -224,7 +223,6 @@ mod tests {
             },
             max_voting_period,
             init_funds,
-            multisig_as_group_admin,
             None,
         )
     }
@@ -235,7 +233,6 @@ mod tests {
         threshold: Threshold,
         max_voting_period: Duration,
         init_funds: Vec<Coin>,
-        multisig_as_group_admin: bool,
         executor: Option<crate::state::Executor>,
     ) -> Addr {
         let dao_addr = instantiate_dao(app, threshold, max_voting_period, executor);
@@ -246,16 +243,6 @@ mod tests {
             .wrap()
             .query_wasm_smart(&dao_addr, &QueryMsg::Group {})
             .unwrap();
-
-        // 3. (Optional) Set the multisig as the group owner
-        if multisig_as_group_admin {
-            let update_admin = Cw4ExecuteMsg::UpdateAdmin {
-                admin: Some(dao_addr.to_string()),
-            };
-            app.execute_contract(Addr::unchecked(OWNER), res.group.addr(), &update_admin, &[])
-                .unwrap();
-            app.update_block(next_block);
-        }
 
         // Bonus: set some funds on the multisig contract for future proposals
         if !init_funds.is_empty() {
@@ -512,7 +499,7 @@ mod tests {
         let required_weight = 4;
         let voting_period = Duration::Time(2000000);
         let dao_addr =
-            setup_test_case_fixed(&mut app, required_weight, voting_period, init_funds, false);
+            setup_test_case_fixed(&mut app, required_weight, voting_period, init_funds);
 
         let proposal = pay_somebody_proposal();
         // Only voters can propose
@@ -597,7 +584,7 @@ mod tests {
             threshold: Decimal::percent(80),
             quorum: Decimal::percent(20),
         };
-        let dao_addr = setup_test_case(&mut app, threshold, voting_period, init_funds, false, None);
+        let dao_addr = setup_test_case(&mut app, threshold, voting_period, init_funds, None);
 
         // create proposal with 1 vote power
         let proposal = pay_somebody_proposal();
@@ -936,7 +923,7 @@ mod tests {
             quorum: Decimal::percent(1),
         };
         let voting_period = Duration::Time(2000000);
-        let dao_addr = setup_test_case(&mut app, threshold, voting_period, init_funds, false, None);
+        let dao_addr = setup_test_case(&mut app, threshold, voting_period, init_funds, None);
 
         // ensure we have cash to cover the proposal
         let contract_bal = app.wrap().query_balance(&dao_addr, "BTC").unwrap();
@@ -1036,7 +1023,6 @@ mod tests {
             threshold,
             voting_period,
             init_funds,
-            false,
             Some(crate::state::Executor::Member), // set executor as Member of voting group
         );
 
@@ -1092,7 +1078,6 @@ mod tests {
             threshold,
             voting_period,
             init_funds,
-            false,
             Some(crate::state::Executor::Only(Addr::unchecked(VOTER3))), // only VOTER3 can execute proposal
         );
 
@@ -1158,7 +1143,6 @@ mod tests {
             threshold,
             Duration::Time(voting_period),
             init_funds,
-            false,
             None,
         );
 
@@ -1235,7 +1219,7 @@ mod tests {
             quorum: Decimal::percent(1),
         };
         let voting_period = Duration::Height(2000000);
-        let dao_addr = setup_test_case(&mut app, threshold, voting_period, init_funds, false, None);
+        let dao_addr = setup_test_case(&mut app, threshold, voting_period, init_funds, None);
 
         // create proposal with 0 vote power
         let proposal = pay_somebody_proposal();
@@ -1621,7 +1605,6 @@ mod tests {
             },
             voting_period,
             init_funds,
-            false,
             None,
         );
 
@@ -1796,7 +1779,9 @@ mod tests {
             quorum: Decimal::percent(1),
         };
         let voting_period = Duration::Time(2000000);
-        let dao_addr = setup_test_case(&mut app, threshold, voting_period, vec![], false, None);
+        let dao_addr = setup_test_case(&mut app, threshold, voting_period, vec![], None);
+
+        let collection_addr = setup_test_collection(&mut app);
 
         // transfer NFT from collection to DAO
         let transfer_msg: Cw721ExecuteMsg<Extension, Extension> = Cw721ExecuteMsg::TransferNft {
