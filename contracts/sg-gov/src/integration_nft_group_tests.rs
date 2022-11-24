@@ -2,28 +2,25 @@
 mod tests {
     use crate::{
         contract::{CONTRACT_NAME, CONTRACT_VERSION},
-        msg::{ExecuteMsg, Group, GroupResponse, InstantiateMsg, QueryMsg},
+        msg::{ExecuteMsg, Group, InstantiateMsg, QueryMsg},
         ContractError,
     };
     use cosmwasm_std::{
         coin, coins, from_binary, to_binary, Addr, BankMsg, BlockInfo, Coin, CosmosMsg, Decimal,
-        Empty, Querier, Timestamp, WasmMsg,
+        Empty, Timestamp, WasmMsg,
     };
     use cw2::{query_contract_info, ContractVersion};
     use cw3::{
         ProposalListResponse, ProposalResponse, Status, Vote, VoteInfo, VoteListResponse,
         VoteResponse, VoterDetail, VoterListResponse,
     };
-    use cw4::{Cw4ExecuteMsg, Member};
-    use cw4_group::helpers::Cw4GroupContract;
+    use cw4::Member;
     use cw721::{Cw721QueryMsg, OwnerOfResponse};
     use cw721_base::{
         msg::{ExecuteMsg as Cw721ExecuteMsg, InstantiateMsg as Cw721InstantiateMsg},
         Extension, MintMsg,
     };
-    use cw_multi_test::{
-        next_block, App, AppBuilder, BankSudo, Contract, ContractWrapper, Executor, SudoMsg,
-    };
+    use cw_multi_test::{next_block, App, AppBuilder, Contract, ContractWrapper, Executor};
     use cw_utils::{Duration, Expiration, Threshold, ThresholdResponse};
     use sg_daos::{Admin, ContractInstantiateMsg};
 
@@ -37,8 +34,6 @@ mod tests {
 
     const COLLECTION_CONTRACT: &str = "contract0";
     const SG_NFT_GROUP_CONTRACT: &str = "contract1";
-    const MEMBERSHIP_COLLECTION_CONTRACT: &str = "contract2";
-    const SG_DAO_CONTRACT: &str = "contract3";
 
     fn member<T: Into<String>>(addr: T, weight: u64) -> Member {
         Member {
@@ -116,7 +111,7 @@ mod tests {
 
         let collection = instantiate_collection(app);
         let msg = sg_nft_group::msg::InstantiateMsg {
-            collection: collection.clone().to_string(),
+            collection: collection.to_string(),
             cw721_init_msg,
         };
 
@@ -193,7 +188,6 @@ mod tests {
                 None,
             )
             .unwrap();
-        println!(">>> group_addr {}", group_addr.clone());
         let msg = InstantiateMsg {
             group: Group::Cw4Address(group_addr.to_string()),
             threshold,
@@ -201,11 +195,8 @@ mod tests {
             executor,
         };
         mint_and_join_nft_group(app, members());
-        let addr = app
-            .instantiate_contract(dao_id, Addr::unchecked(OWNER), &msg, &[], "dao", None)
-            .unwrap();
-        println!(">>> DAO {}", addr);
-        addr
+        app.instantiate_contract(dao_id, Addr::unchecked(OWNER), &msg, &[], "dao", None)
+            .unwrap()
     }
 
     // this will set up both contracts, instantiating the group with
@@ -296,7 +287,7 @@ mod tests {
                 nft_dao_id,
                 Addr::unchecked(OWNER),
                 &InstantiateMsg {
-                    group: Group::Cw4Address(group_addr.clone().to_string()),
+                    group: Group::Cw4Address(group_addr.to_string()),
                     threshold: Threshold::ThresholdQuorum {
                         threshold: Decimal::zero(),
                         quorum: Decimal::percent(1),
@@ -320,7 +311,7 @@ mod tests {
                 nft_dao_id,
                 Addr::unchecked(OWNER),
                 &InstantiateMsg {
-                    group: Group::Cw4Address(group_addr.clone().to_string()),
+                    group: Group::Cw4Address(group_addr.to_string()),
                     threshold: Threshold::AbsoluteCount { weight: 100 },
                     max_voting_period,
                     executor: None,
@@ -334,7 +325,6 @@ mod tests {
             ContractError::Threshold(cw_utils::ThresholdError::UnreachableWeight {}),
             err.downcast().unwrap()
         );
-        println!("2");
 
         // All valid
         mint_and_join_nft_group(&mut app, members);
@@ -353,7 +343,6 @@ mod tests {
                 None,
             )
             .unwrap();
-        println!("3 {}", dao_addr);
 
         // Verify contract version set properly
         let version = query_contract_info(&app, dao_addr.clone()).unwrap();

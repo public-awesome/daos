@@ -11,18 +11,17 @@ use cw2::set_contract_version;
 use cw4::{Member, MemberListResponse, MemberResponse, TotalWeightResponse};
 use cw721::Cw721ReceiveMsg;
 use cw721_base::helpers::Cw721Contract;
-use cw721_base::{ExecuteMsg as Cw721BaseExecuteMsg, MintMsg as Cw721BaseMintMsg};
+use cw721_base::{
+    msg::InstantiateMsg as Cw721InstantiateMsg, ExecuteMsg as Cw721BaseExecuteMsg,
+    MintMsg as Cw721BaseMintMsg,
+};
 use cw_storage_plus::Bound;
 use cw_utils::{maybe_addr, parse_reply_instantiate_data};
+use sg_daos::ContractInstantiateMsg;
 
 use crate::error::ContractError;
 use crate::msg::{ExecuteMsg, InstantiateMsg, QueryMsg};
 use crate::state::{Config, CONFIG, MEMBERS, MEMBER_COLLECTION, TOTAL};
-use cw721_base::{
-    msg::{ExecuteMsg as Cw721ExecuteMsg, InstantiateMsg as Cw721InstantiateMsg},
-    Extension, MintMsg,
-};
-use sg_daos::ContractInstantiateMsg;
 
 // version info for migration info
 const CONTRACT_NAME: &str = "crates.io:sg-nft-group";
