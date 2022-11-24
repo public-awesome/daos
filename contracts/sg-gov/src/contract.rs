@@ -35,7 +35,7 @@ pub fn instantiate(
 ) -> Result<Response, ContractError> {
     set_contract_version(deps.storage, CONTRACT_NAME, CONTRACT_VERSION)?;
 
-    // If the max value of u64 doesn't meet the threshold, 
+    // If the max value of u64 doesn't meet the threshold,
     // we can consider it invalid. Really though we're just checking the
     // threshold is not 0
     msg.threshold.validate(u64::MAX)?;
@@ -55,7 +55,7 @@ pub fn instantiate(
         )),
         Group::Cw4Address(addr) => {
             let group_addr = deps.api.addr_validate(&addr)?;
-            let total_group_weight = Cw4Contract(group_addr.clone()).total_weight(&deps.querier)?; 
+            let total_group_weight = Cw4Contract(group_addr.clone()).total_weight(&deps.querier)?;
 
             msg.threshold.validate(total_group_weight)?;
 

@@ -3,8 +3,8 @@ use std::marker::PhantomData;
 #[cfg(not(feature = "library"))]
 use cosmwasm_std::entry_point;
 use cosmwasm_std::{
-    to_binary, Addr, Binary, Deps, DepsMut, Empty, Env, MessageInfo, Order, Reply, Response,
-    StdResult, Storage, SubMsg, WasmMsg, from_binary,
+    from_binary, to_binary, Addr, Binary, Deps, DepsMut, Empty, Env, MessageInfo, Order, Reply,
+    Response, StdResult, Storage, SubMsg, WasmMsg,
 };
 
 use cw2::set_contract_version;
@@ -15,14 +15,14 @@ use cw721_base::{ExecuteMsg as Cw721BaseExecuteMsg, MintMsg as Cw721BaseMintMsg}
 use cw_storage_plus::Bound;
 use cw_utils::{maybe_addr, parse_reply_instantiate_data};
 
-use sg_daos::ContractInstantiateMsg;
 use crate::error::ContractError;
 use crate::msg::{ExecuteMsg, InstantiateMsg, QueryMsg};
 use crate::state::{Config, CONFIG, MEMBERS, MEMBER_COLLECTION, TOTAL};
- use cw721_base::{
-        msg::{ExecuteMsg as Cw721ExecuteMsg, InstantiateMsg as Cw721InstantiateMsg},
-        Extension, MintMsg,
-    };
+use cw721_base::{
+    msg::{ExecuteMsg as Cw721ExecuteMsg, InstantiateMsg as Cw721InstantiateMsg},
+    Extension, MintMsg,
+};
+use sg_daos::ContractInstantiateMsg;
 
 // version info for migration info
 const CONTRACT_NAME: &str = "crates.io:sg-nft-group";
@@ -47,7 +47,6 @@ pub fn instantiate(
     CONFIG.save(deps.storage, &config)?;
     TOTAL.save(deps.storage, &0)?;
 
-    
     let mut cw721_init_msg: Cw721InstantiateMsg = from_binary(&msg.cw721_init_msg.msg)?;
     cw721_init_msg.minter = env.contract.address.to_string();
 

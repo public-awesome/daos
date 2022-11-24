@@ -6,8 +6,8 @@ mod tests {
         ContractError,
     };
     use cosmwasm_std::{
-        coin, coins, to_binary, Addr, BankMsg, BlockInfo, Coin, CosmosMsg, Decimal, Empty,
-        Timestamp, WasmMsg, from_binary, Querier,
+        coin, coins, from_binary, to_binary, Addr, BankMsg, BlockInfo, Coin, CosmosMsg, Decimal,
+        Empty, Querier, Timestamp, WasmMsg,
     };
     use cw2::{query_contract_info, ContractVersion};
     use cw3::{
@@ -183,14 +183,16 @@ mod tests {
 
         let init_group = sg_nft_group_init_info(app);
         let init_msg: sg_nft_group::msg::InstantiateMsg = from_binary(&init_group.msg).unwrap();
-        let group_addr = app.instantiate_contract(
-            init_group.code_id, 
-            Addr::unchecked(OWNER), 
-            &init_msg,
-            &[], 
-            init_group.label, 
-            None,
-        ).unwrap();
+        let group_addr = app
+            .instantiate_contract(
+                init_group.code_id,
+                Addr::unchecked(OWNER),
+                &init_msg,
+                &[],
+                init_group.label,
+                None,
+            )
+            .unwrap();
         println!(">>> group_addr {}", group_addr.clone());
         let msg = InstantiateMsg {
             group: Group::Cw4Address(group_addr.to_string()),
@@ -277,14 +279,16 @@ mod tests {
 
         let init_group = sg_nft_group_init_info(&mut app);
         let init_msg: sg_nft_group::msg::InstantiateMsg = from_binary(&init_group.msg).unwrap();
-        let group_addr = app.instantiate_contract(
-            init_group.code_id, 
-            Addr::unchecked(OWNER), 
-            &init_msg,
-            &[], 
-            init_group.label, 
-            None,
-        ).unwrap();
+        let group_addr = app
+            .instantiate_contract(
+                init_group.code_id,
+                Addr::unchecked(OWNER),
+                &init_msg,
+                &[],
+                init_group.label,
+                None,
+            )
+            .unwrap();
 
         // Zero required weight (threshold) fails
         let err = app
@@ -454,14 +458,13 @@ mod tests {
                     &Cw721ExecuteMsg::SendNft::<Extension, Extension> {
                         contract: "contract2".to_string(),
                         token_id,
-                        msg: to_binary("This is unused").unwrap()
+                        msg: to_binary("This is unused").unwrap(),
                     },
                     &[],
                 )
                 .unwrap();
             }
         }
-
 
         // Verify contract version set properly
         let version = query_contract_info(&app, dao_addr.clone()).unwrap();
@@ -500,8 +503,7 @@ mod tests {
 
         let required_weight = 4;
         let voting_period = Duration::Time(2000000);
-        let dao_addr =
-            setup_test_case_fixed(&mut app, required_weight, voting_period, init_funds);
+        let dao_addr = setup_test_case_fixed(&mut app, required_weight, voting_period, init_funds);
 
         let proposal = pay_somebody_proposal();
 
@@ -510,7 +512,7 @@ mod tests {
             .execute_contract(Addr::unchecked(SOMEBODY), dao_addr.clone(), &proposal, &[])
             .unwrap_err();
         assert_eq!(ContractError::Unauthorized {}, err.downcast().unwrap());
-        
+
         // Wrong expiration option fails
         let msgs = match proposal.clone() {
             ExecuteMsg::Propose { msgs, .. } => msgs,
