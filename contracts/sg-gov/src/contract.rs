@@ -35,6 +35,11 @@ pub fn instantiate(
 ) -> Result<Response, ContractError> {
     set_contract_version(deps.storage, CONTRACT_NAME, CONTRACT_VERSION)?;
 
+    // If the max value of u64 doesn't meet the threshold, 
+    // we can consider it invalid. Really though we're just checking the
+    // threshold is not 0
+    msg.threshold.validate(u64::MAX)?;
+
     let self_addr = env.contract.address;
 
     let cfg = Config {
