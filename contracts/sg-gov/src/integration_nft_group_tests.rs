@@ -1202,10 +1202,7 @@ mod tests {
         let init_funds = coins(10, "BTC");
         let mut app = mock_app(&init_funds);
 
-        let threshold = Threshold::ThresholdQuorum {
-            threshold: Decimal::percent(51),
-            quorum: Decimal::percent(1),
-        };
+        let threshold = Threshold::AbsoluteCount { weight: 2 };
         let voting_period = Duration::Height(2000000);
         let dao_addr = setup_test_case(&mut app, threshold, voting_period, init_funds, None);
 
