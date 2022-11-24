@@ -49,7 +49,7 @@ mod tests {
 
     fn members() -> Vec<Member> {
         vec![
-            member(OWNER, 0),
+            member(OWNER, 1),
             member(VOTER1, 1),
             member(VOTER2, 2),
             member(VOTER3, 3),
@@ -502,18 +502,13 @@ mod tests {
             setup_test_case_fixed(&mut app, required_weight, voting_period, init_funds);
 
         let proposal = pay_somebody_proposal();
+
         // Only voters can propose
         let err = app
             .execute_contract(Addr::unchecked(SOMEBODY), dao_addr.clone(), &proposal, &[])
             .unwrap_err();
         assert_eq!(ContractError::Unauthorized {}, err.downcast().unwrap());
         
-        // 0 weight is not a voter
-        let err = app
-            .execute_contract(Addr::unchecked(OWNER), dao_addr.clone(), &proposal, &[])
-            .unwrap_err();
-        assert_eq!(ContractError::Unauthorized {}, err.downcast().unwrap());
-
         // Wrong expiration option fails
         let msgs = match proposal.clone() {
             ExecuteMsg::Propose { msgs, .. } => msgs,
@@ -657,7 +652,7 @@ mod tests {
             expires: voting_period.after(&proposed_at),
             status: Status::Open,
             threshold: ThresholdResponse::ThresholdQuorum {
-                total_weight: 23,
+                total_weight: 24,
                 threshold: Decimal::percent(80),
                 quorum: Decimal::percent(20),
             },
@@ -704,28 +699,22 @@ mod tests {
             quorum: Decimal::percent(1),
         };
         let voting_period = Duration::Time(2000000);
-        let dao_addr = setup_test_case(&mut app, threshold, voting_period, init_funds, false, None);
+        let dao_addr = setup_test_case(&mut app, threshold, voting_period, init_funds, None);
 
         // create proposal
         let proposal = pay_somebody_proposal();
         let res = app
-            .execute_contract(Addr::unchecked(VOTER1), dao_addr.clone(), &proposal, &[])
+            .execute_contract(Addr::unchecked(OWNER), dao_addr.clone(), &proposal, &[])
             .unwrap();
 
         // Get the proposal id from the logs
         let proposal_id: u64 = res.custom_attrs(1)[2].value.parse().unwrap();
 
-        // Owner with 0 voting power cannot vote
+        // 0 voting power cannot vote
         let yes_vote = ExecuteMsg::Vote {
             proposal_id,
             vote: Vote::Yes,
         };
-        let err = app
-            .execute_contract(Addr::unchecked(OWNER), dao_addr.clone(), &yes_vote, &[])
-            .unwrap_err();
-        assert_eq!(ContractError::Unauthorized {}, err.downcast().unwrap());
-
-        // Only voters can vote
         let err = app
             .execute_contract(Addr::unchecked(SOMEBODY), dao_addr.clone(), &yes_vote, &[])
             .unwrap_err();
@@ -754,7 +743,7 @@ mod tests {
         // No/Veto votes have no effect on the tally
         // Compute the current tally
         let tally = get_tally(&app, dao_addr.as_ref(), proposal_id);
-        assert_eq!(tally, 1);
+        assert_eq!(tally, 2);
 
         // Cast a No vote
         let no_vote = ExecuteMsg::Vote {
@@ -820,7 +809,6 @@ mod tests {
         );
 
         // query individual votes
-        // initial (with 0 weight)
         let voter = OWNER.into();
         let vote: VoteResponse = app
             .wrap()
@@ -832,7 +820,7 @@ mod tests {
                 proposal_id,
                 voter: OWNER.into(),
                 vote: Vote::Yes,
-                weight: 0
+                weight: 1
             }
         );
 
@@ -1221,7 +1209,7 @@ mod tests {
         let voting_period = Duration::Height(2000000);
         let dao_addr = setup_test_case(&mut app, threshold, voting_period, init_funds, None);
 
-        // create proposal with 0 vote power
+        // create proposal
         let proposal = pay_somebody_proposal();
         let res = app
             .execute_contract(Addr::unchecked(OWNER), dao_addr.clone(), &proposal, &[])
@@ -1242,6 +1230,7 @@ mod tests {
         let res = app
             .execute_contract(Addr::unchecked(SOMEBODY), dao_addr.clone(), &closing, &[])
             .unwrap();
+
         assert_eq!(
             res.custom_attrs(1),
             [
@@ -1700,14 +1689,14 @@ mod tests {
         let init_funds = coins(10, "BTC");
         let mut app = mock_app(&init_funds);
 
-        let collection_addr = setup_test_collection(&mut app);
-
         let threshold = Threshold::ThresholdQuorum {
             threshold: Decimal::percent(51),
             quorum: Decimal::percent(1),
         };
         let voting_period = Duration::Time(2000000);
-        let dao_addr = setup_test_case(&mut app, threshold, voting_period, init_funds, false, None);
+        let dao_addr = setup_test_case(&mut app, threshold, voting_period, init_funds, None);
+
+        let collection_addr = setup_test_collection(&mut app);
 
         // ensure we have cash to cover the proposal
         let contract_bal = app.wrap().query_balance(&dao_addr, "BTC").unwrap();
@@ -1771,8 +1760,6 @@ mod tests {
     #[test]
     fn proposal_nft_transfer_works() {
         let mut app = mock_app(&[]);
-
-        let collection_addr = setup_test_collection(&mut app);
 
         let threshold = Threshold::ThresholdQuorum {
             threshold: Decimal::percent(51),
