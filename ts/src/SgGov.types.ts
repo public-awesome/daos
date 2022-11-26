@@ -9,7 +9,7 @@ export type Executor = "member" | {
 };
 export type Addr = string;
 export type Group = {
-  cw4_instantiate: Cw4Instantiate;
+  cw4_instantiate: ContractInstantiateMsg;
 } | {
   cw4_address: string;
 };
@@ -47,7 +47,7 @@ export interface InstantiateMsg {
   max_voting_period: Duration;
   threshold: Threshold;
 }
-export interface Cw4Instantiate {
+export interface ContractInstantiateMsg {
   admin?: Admin | null;
   code_id: number;
   label: string;

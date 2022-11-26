@@ -4,8 +4,23 @@
 * and run the @cosmwasm/ts-codegen generate command to regenerate this file.
 */
 
+export type Admin = {
+  address: {
+    addr: string;
+  };
+} | {
+  creator: {};
+};
+export type Binary = string;
 export interface InstantiateMsg {
   collection: string;
+  cw721_init_msg: ContractInstantiateMsg;
+}
+export interface ContractInstantiateMsg {
+  admin?: Admin | null;
+  code_id: number;
+  label: string;
+  msg: Binary;
 }
 export type ExecuteMsg = {
   receive_nft: Cw721ReceiveMsg;
@@ -14,7 +29,6 @@ export type ExecuteMsg = {
     token_id: string;
   };
 };
-export type Binary = string;
 export interface Cw721ReceiveMsg {
   msg: Binary;
   sender: string;
