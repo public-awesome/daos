@@ -2,7 +2,7 @@
 mod tests {
     use crate::{
         contract::{CONTRACT_NAME, CONTRACT_VERSION},
-        msg::{ExecuteMsg, Group, InstantiateMsg, QueryMsg},
+        msg::{ExecuteMsg, Group, InstantiateMsg, MetadataResponse, QueryMsg},
         ContractError,
     };
     use cosmwasm_std::{
@@ -189,6 +189,9 @@ mod tests {
             )
             .unwrap();
         let msg = InstantiateMsg {
+            name: "name".to_string(),
+            description: "description".to_string(),
+            image: "image".to_string(),
             group: Group::Cw4Address(group_addr.to_string()),
             threshold,
             max_voting_period,
@@ -287,6 +290,9 @@ mod tests {
                 nft_dao_id,
                 Addr::unchecked(OWNER),
                 &InstantiateMsg {
+                    name: "name".to_string(),
+                    description: "description".to_string(),
+                    image: "image".to_string(),
                     group: Group::Cw4Address(group_addr.to_string()),
                     threshold: Threshold::ThresholdQuorum {
                         threshold: Decimal::zero(),
@@ -311,6 +317,9 @@ mod tests {
                 nft_dao_id,
                 Addr::unchecked(OWNER),
                 &InstantiateMsg {
+                    name: "name".to_string(),
+                    description: "description".to_string(),
+                    image: "image".to_string(),
                     group: Group::Cw4Address(group_addr.to_string()),
                     threshold: Threshold::AbsoluteCount { weight: 100 },
                     max_voting_period,
@@ -333,6 +342,9 @@ mod tests {
                 nft_dao_id,
                 Addr::unchecked(OWNER),
                 &InstantiateMsg {
+                    name: "name".to_string(),
+                    description: "description".to_string(),
+                    image: "image".to_string(),
                     group: Group::Cw4Address(group_addr.to_string()),
                     threshold: Threshold::AbsoluteCount { weight: 1 },
                     max_voting_period,
@@ -352,6 +364,20 @@ mod tests {
                 version: CONTRACT_VERSION.to_string(),
             },
             version,
+        );
+
+        // assert metadata
+        let metadata: MetadataResponse = app
+            .wrap()
+            .query_wasm_smart(&dao_addr, &QueryMsg::Metadata {})
+            .unwrap();
+        assert_eq!(
+            metadata,
+            MetadataResponse {
+                name: "name".to_string(),
+                description: "description".to_string(),
+                image: "image".to_string(),
+            }
         );
 
         // Get voters query
@@ -385,6 +411,9 @@ mod tests {
         let init_group = sg_nft_group_init_info(&mut app);
         // Zero required weight fails
         let instantiate_msg = InstantiateMsg {
+            name: "name".to_string(),
+            description: "description".to_string(),
+            image: "image".to_string(),
             group: Group::Cw4Instantiate(init_group.clone()),
             threshold: Threshold::ThresholdQuorum {
                 threshold: Decimal::zero(),
@@ -410,6 +439,9 @@ mod tests {
 
         // All valid
         let instantiate_msg = InstantiateMsg {
+            name: "name".to_string(),
+            description: "description".to_string(),
+            image: "image".to_string(),
             group: Group::Cw4Instantiate(init_group),
             threshold: Threshold::AbsoluteCount { weight: 1 },
             max_voting_period,
@@ -1528,5 +1560,72 @@ mod tests {
             ContractError::WrongExecuteStatus {},
             err.downcast().unwrap()
         );
+    }
+
+    #[test]
+    fn update_dao_metadata_works() {
+        let mut app = mock_app(&[]);
+
+        let threshold = Threshold::AbsoluteCount { weight: 1 };
+        let voting_period = Duration::Time(2000000);
+        let dao_addr = setup_test_case(&mut app, threshold, voting_period, vec![], None);
+
+        let update_metadata = ExecuteMsg::UpdateMetadata {
+            name: "name2".to_string(),
+            description: "description2".to_string(),
+            image: "image2".to_string(),
+        };
+        let wasm_msg = WasmMsg::Execute {
+            contract_addr: dao_addr.to_string(),
+            msg: to_binary(&update_metadata).unwrap(),
+            funds: vec![],
+        };
+
+        // create update metadata proposal
+        let res = app
+            .execute_contract(
+                Addr::unchecked(VOTER1),
+                dao_addr.clone(),
+                &ExecuteMsg::Propose {
+                    title: "proposal_title".to_string(),
+                    description: "proposal_description".to_string(),
+                    msgs: vec![wasm_msg.into()],
+                    latest: None,
+                },
+                &[],
+            )
+            .unwrap();
+        let proposal_id: u64 = res.custom_attrs(1)[2].value.parse().unwrap();
+
+        // Vote
+        app.execute_contract(
+            Addr::unchecked(VOTER4),
+            dao_addr.clone(),
+            &ExecuteMsg::Vote {
+                proposal_id,
+                vote: Vote::Yes,
+            },
+            &[],
+        )
+        .unwrap();
+
+        // Execute
+        app.execute_contract(
+            Addr::unchecked(SOMEBODY),
+            dao_addr.clone(),
+            &ExecuteMsg::Execute { proposal_id },
+            &[],
+        )
+        .unwrap();
+
+        // verify metadata was updated
+        let res: MetadataResponse = app
+            .wrap()
+            .query_wasm_smart(dao_addr, &QueryMsg::Metadata {})
+            .unwrap();
+
+        assert_eq!("name2", res.name);
+        assert_eq!("description2", res.description);
+        assert_eq!("image2", res.image);
     }
 }
