@@ -8,7 +8,7 @@ import { Coin } from "@cosmjs/amino";
 import { MsgExecuteContractEncodeObject } from "cosmwasm";
 import { MsgExecuteContract } from "cosmjs-types/cosmwasm/wasm/v1/tx";
 import { toUtf8 } from "@cosmjs/encoding";
-import { InstantiateMsg, ExecuteMsg, Binary, Cw721ReceiveMsg, QueryMsg, String, MemberListResponse, Member, MemberResponse, TotalWeightResponse } from "./SgNftGroup.types";
+import { Admin, Binary, InstantiateMsg, ContractInstantiateMsg, ExecuteMsg, Cw721ReceiveMsg, QueryMsg, String, MemberListResponse, Member, MemberResponse, TotalWeightResponse } from "./SgNftGroup.types";
 export interface SgNftGroupMessage {
   contractAddress: string;
   sender: string;

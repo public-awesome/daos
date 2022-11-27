@@ -6,7 +6,7 @@
 
 import { CosmWasmClient, SigningCosmWasmClient, ExecuteResult } from "@cosmjs/cosmwasm-stargate";
 import { StdFee } from "@cosmjs/amino";
-import { Executor, Addr, Group, Admin, Binary, Duration, Threshold, Decimal, InstantiateMsg, Cw4Instantiate, ExecuteMsg, Expiration, Timestamp, Uint64, CosmosMsgForEmpty, BankMsg, Uint128, WasmMsg, Vote, Coin, Empty, QueryMsg, Cw4Contract, GroupResponse, Status, ThresholdResponse, ProposalListResponseForEmpty, ProposalResponseForEmpty, VoterListResponse, VoterDetail, VoteListResponse, VoteInfo, VoteResponse, VoterResponse } from "./SgGov.types";
+import { Executor, Addr, Group, Admin, Binary, Duration, Threshold, Decimal, InstantiateMsg, ContractInstantiateMsg, ExecuteMsg, Expiration, Timestamp, Uint64, CosmosMsgForEmpty, BankMsg, Uint128, WasmMsg, Vote, Coin, Empty, QueryMsg, Cw4Contract, GroupResponse, Status, ThresholdResponse, ProposalListResponseForEmpty, ProposalResponseForEmpty, VoterListResponse, VoterDetail, VoteListResponse, VoteInfo, VoteResponse, VoterResponse } from "./SgGov.types";
 export interface SgGovReadOnlyInterface {
   contractAddress: string;
   threshold: () => Promise<ThresholdResponse>;

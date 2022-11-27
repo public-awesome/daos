@@ -6,7 +6,7 @@
 
 import { CosmWasmClient, SigningCosmWasmClient, ExecuteResult } from "@cosmjs/cosmwasm-stargate";
 import { Coin, StdFee } from "@cosmjs/amino";
-import { InstantiateMsg, ExecuteMsg, Binary, Cw721ReceiveMsg, QueryMsg, String, MemberListResponse, Member, MemberResponse, TotalWeightResponse } from "./SgNftGroup.types";
+import { Admin, Binary, InstantiateMsg, ContractInstantiateMsg, ExecuteMsg, Cw721ReceiveMsg, QueryMsg, String, MemberListResponse, Member, MemberResponse, TotalWeightResponse } from "./SgNftGroup.types";
 export interface SgNftGroupReadOnlyInterface {
   contractAddress: string;
   collection: () => Promise<String>;
