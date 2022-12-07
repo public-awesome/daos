@@ -15,6 +15,9 @@ pub enum Group {
 
 #[cw_serde]
 pub struct InstantiateMsg {
+    pub name: String,
+    pub description: String,
+    pub image: String,
     /// this is the code id for the group contract that contains the member list
     pub group: Group,
     pub threshold: Threshold,
@@ -43,6 +46,11 @@ pub enum ExecuteMsg {
     },
     Close {
         proposal_id: u64,
+    },
+    UpdateMetadata {
+        name: String,
+        description: String,
+        image: String,
     },
 }
 
@@ -80,9 +88,18 @@ pub enum QueryMsg {
     },
     #[returns(GroupResponse)]
     Group {},
+    #[returns(MetadataResponse)]
+    Metadata {},
 }
 
 #[cw_serde]
 pub struct GroupResponse {
     pub group: Cw4Contract,
+}
+
+#[cw_serde]
+pub struct MetadataResponse {
+    pub name: String,
+    pub description: String,
+    pub image: String,
 }

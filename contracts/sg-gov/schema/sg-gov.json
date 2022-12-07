@@ -7,11 +7,17 @@
     "title": "InstantiateMsg",
     "type": "object",
     "required": [
+      "description",
       "group",
+      "image",
       "max_voting_period",
+      "name",
       "threshold"
     ],
     "properties": {
+      "description": {
+        "type": "string"
+      },
       "executor": {
         "description": "who is able to execute passed proposals None means that anyone can execute",
         "anyOf": [
@@ -31,8 +37,14 @@
           }
         ]
       },
+      "image": {
+        "type": "string"
+      },
       "max_voting_period": {
         "$ref": "#/definitions/Duration"
+      },
+      "name": {
+        "type": "string"
       },
       "threshold": {
         "$ref": "#/definitions/Threshold"
@@ -86,7 +98,7 @@
         "description": "Binary is a wrapper around Vec<u8> to add base64 de/serialization with serde. It also adds some helper methods to help encode inline.\n\nThis is only needed as serde-json-{core,wasm} has a horrible encoding for Vec<u8>. See also <https://github.com/CosmWasm/cosmwasm/blob/main/docs/MESSAGE_TYPES.md>.",
         "type": "string"
       },
-      "Cw4Instantiate": {
+      "ContractInstantiateMsg": {
         "type": "object",
         "required": [
           "code_id",
@@ -190,7 +202,7 @@
             ],
             "properties": {
               "cw4_instantiate": {
-                "$ref": "#/definitions/Cw4Instantiate"
+                "$ref": "#/definitions/ContractInstantiateMsg"
               }
             },
             "additionalProperties": false
@@ -400,6 +412,35 @@
                 "type": "integer",
                 "format": "uint64",
                 "minimum": 0.0
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "additionalProperties": false
+      },
+      {
+        "type": "object",
+        "required": [
+          "update_metadata"
+        ],
+        "properties": {
+          "update_metadata": {
+            "type": "object",
+            "required": [
+              "description",
+              "image",
+              "name"
+            ],
+            "properties": {
+              "description": {
+                "type": "string"
+              },
+              "image": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
               }
             },
             "additionalProperties": false
@@ -1024,6 +1065,19 @@
         ],
         "properties": {
           "group": {
+            "type": "object",
+            "additionalProperties": false
+          }
+        },
+        "additionalProperties": false
+      },
+      {
+        "type": "object",
+        "required": [
+          "metadata"
+        ],
+        "properties": {
+          "metadata": {
             "type": "object",
             "additionalProperties": false
           }
@@ -1741,6 +1795,28 @@
           "additionalProperties": false
         }
       }
+    },
+    "metadata": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "MetadataResponse",
+      "type": "object",
+      "required": [
+        "description",
+        "image",
+        "name"
+      ],
+      "properties": {
+        "description": {
+          "type": "string"
+        },
+        "image": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
     },
     "proposal": {
       "$schema": "http://json-schema.org/draft-07/schema#",

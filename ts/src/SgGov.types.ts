@@ -9,7 +9,7 @@ export type Executor = "member" | {
 };
 export type Addr = string;
 export type Group = {
-  cw4_instantiate: Cw4Instantiate;
+  cw4_instantiate: ContractInstantiateMsg;
 } | {
   cw4_address: string;
 };
@@ -42,12 +42,15 @@ export type Threshold = {
 };
 export type Decimal = string;
 export interface InstantiateMsg {
+  description: string;
   executor?: Executor | null;
   group: Group;
+  image: string;
   max_voting_period: Duration;
+  name: string;
   threshold: Threshold;
 }
-export interface Cw4Instantiate {
+export interface ContractInstantiateMsg {
   admin?: Admin | null;
   code_id: number;
   label: string;
@@ -72,6 +75,12 @@ export type ExecuteMsg = {
 } | {
   close: {
     proposal_id: number;
+  };
+} | {
+  update_metadata: {
+    description: string;
+    image: string;
+    name: string;
   };
 };
 export type Expiration = {
@@ -185,6 +194,8 @@ export type QueryMsg = {
   };
 } | {
   group: {};
+} | {
+  metadata: {};
 };
 export type Cw4Contract = Addr;
 export interface GroupResponse {
@@ -235,6 +246,11 @@ export interface VoteInfo {
   vote: Vote;
   voter: string;
   weight: number;
+}
+export interface MetadataResponse {
+  description: string;
+  image: string;
+  name: string;
 }
 export interface VoteResponse {
   vote?: VoteInfo | null;

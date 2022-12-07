@@ -17,6 +17,10 @@ pub enum Executor {
 
 #[cw_serde]
 pub struct Config {
+    pub name: String,
+    pub description: String,
+    pub image: String,
+
     pub threshold: Threshold,
     pub max_voting_period: Duration,
     // who is able to execute passed proposals

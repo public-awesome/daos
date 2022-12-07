@@ -3,17 +3,21 @@ use std::marker::PhantomData;
 #[cfg(not(feature = "library"))]
 use cosmwasm_std::entry_point;
 use cosmwasm_std::{
-    to_binary, Addr, Binary, Deps, DepsMut, Empty, Env, MessageInfo, Order, Reply, Response,
-    StdResult, Storage, SubMsg, WasmMsg,
+    from_binary, to_binary, Addr, Binary, Deps, DepsMut, Empty, Env, MessageInfo, Order, Reply,
+    Response, StdResult, Storage, SubMsg, WasmMsg,
 };
 
 use cw2::set_contract_version;
 use cw4::{Member, MemberListResponse, MemberResponse, TotalWeightResponse};
 use cw721::Cw721ReceiveMsg;
 use cw721_base::helpers::Cw721Contract;
-use cw721_base::{ExecuteMsg as Cw721BaseExecuteMsg, MintMsg as Cw721BaseMintMsg};
+use cw721_base::{
+    msg::InstantiateMsg as Cw721InstantiateMsg, ExecuteMsg as Cw721BaseExecuteMsg,
+    MintMsg as Cw721BaseMintMsg,
+};
 use cw_storage_plus::Bound;
 use cw_utils::{maybe_addr, parse_reply_instantiate_data};
+use sg_daos::ContractInstantiateMsg;
 
 use crate::error::ContractError;
 use crate::msg::{ExecuteMsg, InstantiateMsg, QueryMsg};
@@ -42,8 +46,17 @@ pub fn instantiate(
     CONFIG.save(deps.storage, &config)?;
     TOTAL.save(deps.storage, &0)?;
 
+    let mut cw721_init_msg: Cw721InstantiateMsg = from_binary(&msg.cw721_init_msg.msg)?;
+    cw721_init_msg.minter = env.contract.address.to_string();
+
+    let instantiate_msg = ContractInstantiateMsg {
+        code_id: msg.cw721_init_msg.code_id,
+        admin: msg.cw721_init_msg.admin,
+        label: msg.cw721_init_msg.label,
+        msg: to_binary(&cw721_init_msg).unwrap(),
+    };
     let submsg = SubMsg::reply_always(
-        msg.cw721_init_msg.into_wasm_msg(env.contract.address),
+        instantiate_msg.into_wasm_msg(env.contract.address),
         INIT_REPLY_ID,
     );
 
