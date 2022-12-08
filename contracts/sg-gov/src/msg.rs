@@ -1,48 +1,23 @@
 use cosmwasm_schema::{cw_serde, QueryResponses};
-use cosmwasm_std::{Addr, Binary, CosmosMsg, Empty, WasmMsg};
+use cosmwasm_std::{CosmosMsg, Empty};
 use cw3::Vote;
 use cw4::Cw4Contract;
 use cw_utils::{Duration, Expiration, Threshold};
+use sg_daos::ContractInstantiateMsg;
 
 use crate::state::Executor;
 
 #[cw_serde]
-pub enum Admin {
-    Address { addr: String },
-    Creator {},
-}
-
-#[cw_serde]
-pub struct Cw4Instantiate {
-    pub code_id: u64,
-    pub msg: Binary,
-    pub admin: Option<Admin>,
-    pub label: String,
-}
-
-impl Cw4Instantiate {
-    pub fn into_wasm_msg(self, creator: Addr) -> WasmMsg {
-        WasmMsg::Instantiate {
-            admin: self.admin.map(|admin| match admin {
-                Admin::Address { addr } => addr,
-                Admin::Creator {} => creator.into_string(),
-            }),
-            code_id: self.code_id,
-            msg: self.msg,
-            label: self.label,
-            funds: vec![],
-        }
-    }
-}
-
-#[cw_serde]
 pub enum Group {
-    Cw4Instantiate(Cw4Instantiate),
+    Cw4Instantiate(ContractInstantiateMsg),
     Cw4Address(String),
 }
 
 #[cw_serde]
 pub struct InstantiateMsg {
+    pub name: String,
+    pub description: String,
+    pub image: String,
     /// this is the code id for the group contract that contains the member list
     pub group: Group,
     pub threshold: Threshold,
@@ -71,6 +46,11 @@ pub enum ExecuteMsg {
     },
     Close {
         proposal_id: u64,
+    },
+    UpdateMetadata {
+        name: String,
+        description: String,
+        image: String,
     },
 }
 
@@ -108,9 +88,18 @@ pub enum QueryMsg {
     },
     #[returns(GroupResponse)]
     Group {},
+    #[returns(MetadataResponse)]
+    Metadata {},
 }
 
 #[cw_serde]
 pub struct GroupResponse {
     pub group: Cw4Contract,
+}
+
+#[cw_serde]
+pub struct MetadataResponse {
+    pub name: String,
+    pub description: String,
+    pub image: String,
 }

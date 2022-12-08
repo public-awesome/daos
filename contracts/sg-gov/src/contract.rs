@@ -17,7 +17,7 @@ use cw_storage_plus::Bound;
 use cw_utils::{maybe_addr, parse_reply_instantiate_data, Expiration, ThresholdResponse};
 
 use crate::error::ContractError;
-use crate::msg::{ExecuteMsg, Group, GroupResponse, InstantiateMsg, QueryMsg};
+use crate::msg::{ExecuteMsg, Group, GroupResponse, InstantiateMsg, MetadataResponse, QueryMsg};
 use crate::state::{Config, CONFIG, GROUP};
 
 // version info for migration info
@@ -35,10 +35,18 @@ pub fn instantiate(
 ) -> Result<Response, ContractError> {
     set_contract_version(deps.storage, CONTRACT_NAME, CONTRACT_VERSION)?;
 
+    // If the max value of u64 doesn't meet the threshold,
+    // we can consider it invalid. Really though we're just checking the
+    // threshold is not 0
+    msg.threshold.validate(u64::MAX)?;
+
     let self_addr = env.contract.address;
 
     let cfg = Config {
-        threshold: msg.threshold,
+        name: msg.name,
+        description: msg.description,
+        image: msg.image,
+        threshold: msg.threshold.clone(),
         max_voting_period: msg.max_voting_period,
         executor: msg.executor,
     };
@@ -49,7 +57,12 @@ pub fn instantiate(
             SubMsg::reply_on_success(init.into_wasm_msg(self_addr), INIT_GROUP_REPLY_ID),
         )),
         Group::Cw4Address(addr) => {
-            GROUP.save(deps.storage, &Cw4Contract(deps.api.addr_validate(&addr)?))?;
+            let group_addr = deps.api.addr_validate(&addr)?;
+            let total_group_weight = Cw4Contract(group_addr.clone()).total_weight(&deps.querier)?;
+
+            msg.threshold.validate(total_group_weight)?;
+
+            GROUP.save(deps.storage, &Cw4Contract(group_addr))?;
             Ok(Response::default())
         }
     }
@@ -82,6 +95,18 @@ pub fn execute(
         }
         ExecuteMsg::Execute { proposal_id } => Ok(execute_execute(deps, env, info, proposal_id)?),
         ExecuteMsg::Close { proposal_id } => Ok(execute_close(deps, env, info, proposal_id)?),
+        ExecuteMsg::UpdateMetadata {
+            name,
+            description,
+            image,
+        } => Ok(execute_update_metadata(
+            deps,
+            env,
+            info,
+            name,
+            description,
+            image,
+        )?),
     }
 }
 
@@ -107,7 +132,6 @@ pub fn execute_propose(
     let vote_power = group
         .is_member(&deps.querier, &info.sender, None)?
         .ok_or(ContractError::Unauthorized {})?;
-
     // max expires also used as default
     let max_expires = cfg.max_voting_period.after(&env.block);
     let mut expires = latest.unwrap_or(max_expires);
@@ -256,6 +280,36 @@ pub fn execute_close(
         .add_attribute("proposal_id", proposal_id.to_string()))
 }
 
+pub fn execute_update_metadata(
+    deps: DepsMut,
+    env: Env,
+    info: MessageInfo,
+    name: String,
+    description: String,
+    image: String,
+) -> Result<Response<Empty>, ContractError> {
+    // metadata can only be updated via a proposal
+    if info.sender != env.contract.address {
+        return Err(ContractError::Unauthorized {});
+    }
+
+    let config = CONFIG.load(deps.storage)?;
+
+    CONFIG.save(
+        deps.storage,
+        &Config {
+            name,
+            description,
+            image,
+            threshold: config.threshold,
+            max_voting_period: config.max_voting_period,
+            executor: config.executor,
+        },
+    )?;
+
+    Ok(Response::new().add_attribute("action", "update_metadata"))
+}
+
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn reply(deps: DepsMut, _env: Env, msg: Reply) -> Result<Response, ContractError> {
     if msg.id != INIT_GROUP_REPLY_ID {
@@ -271,10 +325,6 @@ pub fn reply(deps: DepsMut, _env: Env, msg: Reply) -> Result<Response, ContractE
                         addr: res.contract_address.clone(),
                     }
                 })?);
-
-            let total_weight = group.total_weight(&deps.querier)?;
-            let config = CONFIG.load(deps.storage)?;
-            config.threshold.validate(total_weight)?;
 
             GROUP.save(deps.storage, &group)?;
 
@@ -307,12 +357,22 @@ pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
             to_binary(&list_voters(deps, start_after, limit)?)
         }
         QueryMsg::Group {} => to_binary(&query_group(deps)?),
+        QueryMsg::Metadata {} => to_binary(&query_metadata(deps)?),
     }
 }
 
 fn query_group(deps: Deps) -> StdResult<GroupResponse> {
     let group = GROUP.load(deps.storage)?;
     Ok(GroupResponse { group })
+}
+
+fn query_metadata(deps: Deps) -> StdResult<MetadataResponse> {
+    let config = CONFIG.load(deps.storage)?;
+    Ok(MetadataResponse {
+        name: config.name,
+        description: config.description,
+        image: config.image,
+    })
 }
 
 fn query_threshold(deps: Deps) -> StdResult<ThresholdResponse> {

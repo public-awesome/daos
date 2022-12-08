@@ -1,29 +1,30 @@
 #[cfg(test)]
 mod tests {
+    use std::vec;
+
     use crate::{
         contract::{CONTRACT_NAME, CONTRACT_VERSION},
-        msg::{Admin, Cw4Instantiate, ExecuteMsg, Group, GroupResponse, InstantiateMsg, QueryMsg},
+        msg::{ExecuteMsg, Group, InstantiateMsg, MetadataResponse, QueryMsg},
         ContractError,
     };
     use cosmwasm_std::{
-        coin, coins, to_binary, Addr, BankMsg, BlockInfo, Coin, CosmosMsg, Decimal, Empty,
-        Timestamp, WasmMsg,
+        coin, coins, from_binary, to_binary, Addr, BankMsg, BlockInfo, Coin, CosmosMsg, Decimal,
+        Empty, Timestamp, WasmMsg,
     };
     use cw2::{query_contract_info, ContractVersion};
     use cw3::{
         ProposalListResponse, ProposalResponse, Status, Vote, VoteInfo, VoteListResponse,
         VoteResponse, VoterDetail, VoterListResponse,
     };
-    // use cw3_flex_multisig::state::Executor as Cw3Executor;
-    use cw4::{Cw4ExecuteMsg, Member};
-    use cw4_group::helpers::Cw4GroupContract;
-    use cw721::{Cw721QueryMsg, OwnerOfResponse};
+    use cw4::Member;
+    use cw721::{ContractInfoResponse, Cw721QueryMsg, OwnerOfResponse};
     use cw721_base::{
         msg::{ExecuteMsg as Cw721ExecuteMsg, InstantiateMsg as Cw721InstantiateMsg},
         Extension, MintMsg,
     };
     use cw_multi_test::{next_block, App, AppBuilder, Contract, ContractWrapper, Executor};
     use cw_utils::{Duration, Expiration, Threshold, ThresholdResponse};
+    use sg_daos::{Admin, ContractInstantiateMsg};
 
     const OWNER: &str = "admin0001";
     const VOTER1: &str = "voter0001";
@@ -32,6 +33,9 @@ mod tests {
     const VOTER4: &str = "voter0004";
     const VOTER5: &str = "voter0005";
     const SOMEBODY: &str = "somebody";
+
+    const COLLECTION_CONTRACT: &str = "contract0";
+    const SG_NFT_GROUP_CONTRACT: &str = "contract1";
 
     fn member<T: Into<String>>(addr: T, weight: u64) -> Member {
         Member {
@@ -42,7 +46,7 @@ mod tests {
 
     fn members() -> Vec<Member> {
         vec![
-            member(OWNER, 0),
+            member(OWNER, 1),
             member(VOTER1, 1),
             member(VOTER2, 2),
             member(VOTER3, 3),
@@ -61,16 +65,15 @@ mod tests {
         Box::new(contract)
     }
 
-    pub fn contract_group() -> Box<dyn Contract<Empty>> {
+    pub fn contract_nft_group() -> Box<dyn Contract<Empty>> {
         let contract = ContractWrapper::new(
-            cw4_group::contract::execute,
-            cw4_group::contract::instantiate,
-            cw4_group::contract::query,
-        );
+            sg_nft_group::contract::execute,
+            sg_nft_group::contract::instantiate,
+            sg_nft_group::contract::query,
+        )
+        .with_reply(sg_nft_group::contract::reply);
         Box::new(contract)
     }
-
-    // TODO: also test with sg-nft-group
 
     pub fn contract_cw721() -> Box<dyn Contract<Empty>> {
         let contract = ContractWrapper::new(
@@ -90,19 +93,79 @@ mod tests {
         })
     }
 
-    /// create a cw4-group initialized with the given members
-    fn cw4_group_init_info(app: &mut App, members: Vec<Member>) -> Cw4Instantiate {
-        let group_id = app.store_code(contract_group());
+    /// create a sg_nft_group initialized with the given members
+    fn sg_nft_group_init_info(app: &mut App) -> ContractInstantiateMsg {
+        let group_id = app.store_code(contract_nft_group());
+        let collection_code_id = app.store_code(contract_cw721());
 
-        Cw4Instantiate {
+        let msg = Cw721InstantiateMsg {
+            name: "MemberCollection".to_string(),
+            symbol: "SGMC".to_string(),
+            minter: SG_NFT_GROUP_CONTRACT.to_string(),
+        };
+
+        let cw721_init_msg = ContractInstantiateMsg {
+            code_id: collection_code_id,
+            msg: to_binary(&msg).unwrap(),
+            admin: Some(Admin::Creator {}),
+            label: "MemberCollection".to_string(),
+        };
+
+        let collection = instantiate_collection(app);
+        let msg = sg_nft_group::msg::InstantiateMsg {
+            collection: collection.to_string(),
+            cw721_init_msg,
+        };
+
+        ContractInstantiateMsg {
             code_id: group_id,
-            msg: to_binary(&cw4_group::msg::InstantiateMsg {
-                admin: Some(Addr::unchecked(OWNER).to_string()),
-                members,
-            })
-            .unwrap(),
+            msg: to_binary(&msg).unwrap(),
             admin: Some(Admin::Creator {}),
             label: "Test-Group".to_string(),
+        }
+    }
+
+    fn mint_into_collection(app: &mut App, owner: String, token_id: String) {
+        let mint_msg = Cw721ExecuteMsg::Mint::<Extension, Extension>(MintMsg::<Extension> {
+            token_id,
+            owner,
+            token_uri: None,
+            extension: None,
+        });
+
+        app.execute_contract(
+            Addr::unchecked(MINTER),
+            Addr::unchecked(COLLECTION_CONTRACT),
+            &mint_msg,
+            &[],
+        )
+        .unwrap();
+    }
+
+    fn join_group(app: &mut App, sender: String, token_id: String) {
+        let msg = to_binary("This is unused").unwrap();
+
+        let send_nft_msg = Cw721ExecuteMsg::SendNft::<Extension, Extension> {
+            contract: SG_NFT_GROUP_CONTRACT.to_string(),
+            token_id,
+            msg,
+        };
+        app.execute_contract(
+            Addr::unchecked(sender),
+            Addr::unchecked(COLLECTION_CONTRACT),
+            &send_nft_msg,
+            &[],
+        )
+        .unwrap();
+    }
+
+    fn mint_and_join_nft_group(app: &mut App, members: Vec<Member>) {
+        for member in members {
+            for i in 0..member.weight {
+                let token_id = format!("{}/{}", member.clone().addr, i);
+                mint_into_collection(app, member.clone().addr, token_id.clone());
+                join_group(app, member.clone().addr, token_id);
+            }
         }
     }
 
@@ -114,13 +177,28 @@ mod tests {
         executor: Option<crate::state::Executor>,
     ) -> Addr {
         let dao_id = app.store_code(contract_nft_dao());
-
+        let init_group = sg_nft_group_init_info(app);
+        let init_msg: sg_nft_group::msg::InstantiateMsg = from_binary(&init_group.msg).unwrap();
+        let group_addr = app
+            .instantiate_contract(
+                init_group.code_id,
+                Addr::unchecked(OWNER),
+                &init_msg,
+                &[],
+                init_group.label,
+                None,
+            )
+            .unwrap();
         let msg = InstantiateMsg {
-            group: Group::Cw4Instantiate(cw4_group_init_info(app, members())),
+            name: "name".to_string(),
+            description: "description".to_string(),
+            image: "image".to_string(),
+            group: Group::Cw4Address(group_addr.to_string()),
             threshold,
             max_voting_period,
             executor,
         };
+        mint_and_join_nft_group(app, members());
         app.instantiate_contract(dao_id, Addr::unchecked(OWNER), &msg, &[], "dao", None)
             .unwrap()
     }
@@ -134,7 +212,6 @@ mod tests {
         weight_needed: u64,
         max_voting_period: Duration,
         init_funds: Vec<Coin>,
-        multisig_as_group_admin: bool,
     ) -> Addr {
         setup_test_case(
             app,
@@ -143,7 +220,6 @@ mod tests {
             },
             max_voting_period,
             init_funds,
-            multisig_as_group_admin,
             None,
         )
     }
@@ -154,27 +230,10 @@ mod tests {
         threshold: Threshold,
         max_voting_period: Duration,
         init_funds: Vec<Coin>,
-        multisig_as_group_admin: bool,
         executor: Option<crate::state::Executor>,
     ) -> Addr {
         let dao_addr = instantiate_dao(app, threshold, max_voting_period, executor);
         app.update_block(next_block);
-
-        // Get the group address from the DAO
-        let res: GroupResponse = app
-            .wrap()
-            .query_wasm_smart(&dao_addr, &QueryMsg::Group {})
-            .unwrap();
-
-        // 3. (Optional) Set the multisig as the group owner
-        if multisig_as_group_admin {
-            let update_admin = Cw4ExecuteMsg::UpdateAdmin {
-                admin: Some(dao_addr.to_string()),
-            };
-            app.execute_contract(Addr::unchecked(OWNER), res.group.addr(), &update_admin, &[])
-                .unwrap();
-            app.update_block(next_block);
-        }
 
         // Bonus: set some funds on the multisig contract for future proposals
         if !init_funds.is_empty() {
@@ -206,18 +265,157 @@ mod tests {
     }
 
     #[test]
+    fn test_instantiate_existing_group() {
+        let mut app = mock_app(&[]);
+
+        let nft_dao_id = app.store_code(contract_nft_dao());
+        let max_voting_period = Duration::Time(1234567);
+        let members = vec![member(OWNER, 1)];
+
+        let init_group = sg_nft_group_init_info(&mut app);
+        let init_msg: sg_nft_group::msg::InstantiateMsg = from_binary(&init_group.msg).unwrap();
+        let group_addr = app
+            .instantiate_contract(
+                init_group.code_id,
+                Addr::unchecked(OWNER),
+                &init_msg,
+                &[],
+                init_group.label,
+                None,
+            )
+            .unwrap();
+
+        // Zero required weight (threshold) fails
+        let err = app
+            .instantiate_contract(
+                nft_dao_id,
+                Addr::unchecked(OWNER),
+                &InstantiateMsg {
+                    name: "name".to_string(),
+                    description: "description".to_string(),
+                    image: "image".to_string(),
+                    group: Group::Cw4Address(group_addr.to_string()),
+                    threshold: Threshold::ThresholdQuorum {
+                        threshold: Decimal::zero(),
+                        quorum: Decimal::percent(1),
+                    },
+                    max_voting_period,
+                    executor: None,
+                },
+                &[],
+                "zero required weight",
+                None,
+            )
+            .unwrap_err();
+        assert_eq!(
+            ContractError::Threshold(cw_utils::ThresholdError::InvalidThreshold {}),
+            err.downcast().unwrap()
+        );
+
+        // Total weight (0) less than required weight not allowed
+        let err = app
+            .instantiate_contract(
+                nft_dao_id,
+                Addr::unchecked(OWNER),
+                &InstantiateMsg {
+                    name: "name".to_string(),
+                    description: "description".to_string(),
+                    image: "image".to_string(),
+                    group: Group::Cw4Address(group_addr.to_string()),
+                    threshold: Threshold::AbsoluteCount { weight: 100 },
+                    max_voting_period,
+                    executor: None,
+                },
+                &[],
+                "high required weight",
+                None,
+            )
+            .unwrap_err();
+        assert_eq!(
+            ContractError::Threshold(cw_utils::ThresholdError::UnreachableWeight {}),
+            err.downcast().unwrap()
+        );
+
+        // All valid
+        mint_and_join_nft_group(&mut app, members);
+        let dao_addr = app
+            .instantiate_contract(
+                nft_dao_id,
+                Addr::unchecked(OWNER),
+                &InstantiateMsg {
+                    name: "name".to_string(),
+                    description: "description".to_string(),
+                    image: "image".to_string(),
+                    group: Group::Cw4Address(group_addr.to_string()),
+                    threshold: Threshold::AbsoluteCount { weight: 1 },
+                    max_voting_period,
+                    executor: None,
+                },
+                &[],
+                "all good",
+                None,
+            )
+            .unwrap();
+
+        // Verify contract version set properly
+        let version = query_contract_info(&app, dao_addr.clone()).unwrap();
+        assert_eq!(
+            ContractVersion {
+                contract: CONTRACT_NAME.to_string(),
+                version: CONTRACT_VERSION.to_string(),
+            },
+            version,
+        );
+
+        // assert metadata
+        let metadata: MetadataResponse = app
+            .wrap()
+            .query_wasm_smart(&dao_addr, &QueryMsg::Metadata {})
+            .unwrap();
+        assert_eq!(
+            metadata,
+            MetadataResponse {
+                name: "name".to_string(),
+                description: "description".to_string(),
+                image: "image".to_string(),
+            }
+        );
+
+        // Get voters query
+        let voters: VoterListResponse = app
+            .wrap()
+            .query_wasm_smart(
+                &dao_addr,
+                &QueryMsg::ListVoters {
+                    start_after: None,
+                    limit: None,
+                },
+            )
+            .unwrap();
+        assert_eq!(
+            voters.voters,
+            vec![VoterDetail {
+                addr: OWNER.into(),
+                weight: 1
+            }]
+        );
+    }
+
+    #[test]
     fn test_instantiate_works() {
         let mut app = mock_app(&[]);
 
-        // make a simple group
         let nft_dao_id = app.store_code(contract_nft_dao());
         let max_voting_period = Duration::Time(1234567);
-
         let members = vec![member(OWNER, 1)];
 
+        let init_group = sg_nft_group_init_info(&mut app);
         // Zero required weight fails
         let instantiate_msg = InstantiateMsg {
-            group: Group::Cw4Instantiate(cw4_group_init_info(&mut app, members.clone())),
+            name: "name".to_string(),
+            description: "description".to_string(),
+            image: "image".to_string(),
+            group: Group::Cw4Instantiate(init_group.clone()),
             threshold: Threshold::ThresholdQuorum {
                 threshold: Decimal::zero(),
                 quorum: Decimal::percent(1),
@@ -240,31 +438,12 @@ mod tests {
             err.downcast().unwrap()
         );
 
-        // Total weight less than required weight not allowed
-        let instantiate_msg = InstantiateMsg {
-            group: Group::Cw4Instantiate(cw4_group_init_info(&mut app, members.clone())),
-            threshold: Threshold::AbsoluteCount { weight: 100 },
-            max_voting_period,
-            executor: None,
-        };
-        let err = app
-            .instantiate_contract(
-                nft_dao_id,
-                Addr::unchecked(OWNER),
-                &instantiate_msg,
-                &[],
-                "high required weight",
-                None,
-            )
-            .unwrap_err();
-        assert_eq!(
-            ContractError::Threshold(cw_utils::ThresholdError::UnreachableWeight {}),
-            err.downcast().unwrap()
-        );
-
         // All valid
         let instantiate_msg = InstantiateMsg {
-            group: Group::Cw4Instantiate(cw4_group_init_info(&mut app, members)),
+            name: "name".to_string(),
+            description: "description".to_string(),
+            image: "image".to_string(),
+            group: Group::Cw4Instantiate(init_group),
             threshold: Threshold::AbsoluteCount { weight: 1 },
             max_voting_period,
             executor: None,
@@ -279,6 +458,35 @@ mod tests {
                 None,
             )
             .unwrap();
+
+        for member in members {
+            for i in 0..member.weight {
+                let token_id = format!("{}/{}", member.clone().addr, i);
+                app.execute_contract(
+                    Addr::unchecked(MINTER),
+                    Addr::unchecked(COLLECTION_CONTRACT),
+                    &Cw721ExecuteMsg::Mint::<Extension, Extension>(MintMsg::<Extension> {
+                        token_id: token_id.clone(),
+                        owner: member.clone().addr,
+                        token_uri: None,
+                        extension: None,
+                    }),
+                    &[],
+                )
+                .unwrap();
+                app.execute_contract(
+                    Addr::unchecked(member.clone().addr),
+                    Addr::unchecked(COLLECTION_CONTRACT),
+                    &Cw721ExecuteMsg::SendNft::<Extension, Extension> {
+                        contract: "contract2".to_string(),
+                        token_id,
+                        msg: to_binary("This is unused").unwrap(),
+                    },
+                    &[],
+                )
+                .unwrap();
+            }
+        }
 
         // Verify contract version set properly
         let version = query_contract_info(&app, dao_addr.clone()).unwrap();
@@ -317,10 +525,10 @@ mod tests {
 
         let required_weight = 4;
         let voting_period = Duration::Time(2000000);
-        let dao_addr =
-            setup_test_case_fixed(&mut app, required_weight, voting_period, init_funds, false);
+        let dao_addr = setup_test_case_fixed(&mut app, required_weight, voting_period, init_funds);
 
         let proposal = pay_somebody_proposal();
+
         // Only voters can propose
         let err = app
             .execute_contract(Addr::unchecked(SOMEBODY), dao_addr.clone(), &proposal, &[])
@@ -332,6 +540,7 @@ mod tests {
             ExecuteMsg::Propose { msgs, .. } => msgs,
             _ => panic!("Wrong variant"),
         };
+
         let proposal_wrong_exp = ExecuteMsg::Propose {
             title: "Rewarding somebody".to_string(),
             description: "Do we reward her?".to_string(),
@@ -340,7 +549,7 @@ mod tests {
         };
         let err = app
             .execute_contract(
-                Addr::unchecked(OWNER),
+                Addr::unchecked(VOTER1),
                 dao_addr.clone(),
                 &proposal_wrong_exp,
                 &[],
@@ -396,7 +605,7 @@ mod tests {
             threshold: Decimal::percent(80),
             quorum: Decimal::percent(20),
         };
-        let dao_addr = setup_test_case(&mut app, threshold, voting_period, init_funds, false, None);
+        let dao_addr = setup_test_case(&mut app, threshold, voting_period, init_funds, None);
 
         // create proposal with 1 vote power
         let proposal = pay_somebody_proposal();
@@ -469,7 +678,7 @@ mod tests {
             expires: voting_period.after(&proposed_at),
             status: Status::Open,
             threshold: ThresholdResponse::ThresholdQuorum {
-                total_weight: 23,
+                total_weight: 24,
                 threshold: Decimal::percent(80),
                 quorum: Decimal::percent(20),
             },
@@ -516,9 +725,9 @@ mod tests {
             quorum: Decimal::percent(1),
         };
         let voting_period = Duration::Time(2000000);
-        let dao_addr = setup_test_case(&mut app, threshold, voting_period, init_funds, false, None);
+        let dao_addr = setup_test_case(&mut app, threshold, voting_period, init_funds, None);
 
-        // create proposal with 0 vote power
+        // create proposal
         let proposal = pay_somebody_proposal();
         let res = app
             .execute_contract(Addr::unchecked(OWNER), dao_addr.clone(), &proposal, &[])
@@ -527,17 +736,11 @@ mod tests {
         // Get the proposal id from the logs
         let proposal_id: u64 = res.custom_attrs(1)[2].value.parse().unwrap();
 
-        // Owner with 0 voting power cannot vote
+        // 0 voting power cannot vote
         let yes_vote = ExecuteMsg::Vote {
             proposal_id,
             vote: Vote::Yes,
         };
-        let err = app
-            .execute_contract(Addr::unchecked(OWNER), dao_addr.clone(), &yes_vote, &[])
-            .unwrap_err();
-        assert_eq!(ContractError::Unauthorized {}, err.downcast().unwrap());
-
-        // Only voters can vote
         let err = app
             .execute_contract(Addr::unchecked(SOMEBODY), dao_addr.clone(), &yes_vote, &[])
             .unwrap_err();
@@ -566,7 +769,7 @@ mod tests {
         // No/Veto votes have no effect on the tally
         // Compute the current tally
         let tally = get_tally(&app, dao_addr.as_ref(), proposal_id);
-        assert_eq!(tally, 1);
+        assert_eq!(tally, 2);
 
         // Cast a No vote
         let no_vote = ExecuteMsg::Vote {
@@ -632,7 +835,6 @@ mod tests {
         );
 
         // query individual votes
-        // initial (with 0 weight)
         let voter = OWNER.into();
         let vote: VoteResponse = app
             .wrap()
@@ -644,7 +846,7 @@ mod tests {
                 proposal_id,
                 voter: OWNER.into(),
                 vote: Vote::Yes,
-                weight: 0
+                weight: 1
             }
         );
 
@@ -735,7 +937,7 @@ mod tests {
             quorum: Decimal::percent(1),
         };
         let voting_period = Duration::Time(2000000);
-        let dao_addr = setup_test_case(&mut app, threshold, voting_period, init_funds, false, None);
+        let dao_addr = setup_test_case(&mut app, threshold, voting_period, init_funds, None);
 
         // ensure we have cash to cover the proposal
         let contract_bal = app.wrap().query_balance(&dao_addr, "BTC").unwrap();
@@ -835,7 +1037,6 @@ mod tests {
             threshold,
             voting_period,
             init_funds,
-            false,
             Some(crate::state::Executor::Member), // set executor as Member of voting group
         );
 
@@ -891,7 +1092,6 @@ mod tests {
             threshold,
             voting_period,
             init_funds,
-            false,
             Some(crate::state::Executor::Only(Addr::unchecked(VOTER3))), // only VOTER3 can execute proposal
         );
 
@@ -957,7 +1157,6 @@ mod tests {
             threshold,
             Duration::Time(voting_period),
             init_funds,
-            false,
             None,
         );
 
@@ -1029,14 +1228,11 @@ mod tests {
         let init_funds = coins(10, "BTC");
         let mut app = mock_app(&init_funds);
 
-        let threshold = Threshold::ThresholdQuorum {
-            threshold: Decimal::percent(51),
-            quorum: Decimal::percent(1),
-        };
+        let threshold = Threshold::AbsoluteCount { weight: 2 };
         let voting_period = Duration::Height(2000000);
-        let dao_addr = setup_test_case(&mut app, threshold, voting_period, init_funds, false, None);
+        let dao_addr = setup_test_case(&mut app, threshold, voting_period, init_funds, None);
 
-        // create proposal with 0 vote power
+        // create proposal
         let proposal = pay_somebody_proposal();
         let res = app
             .execute_contract(Addr::unchecked(OWNER), dao_addr.clone(), &proposal, &[])
@@ -1057,6 +1253,7 @@ mod tests {
         let res = app
             .execute_contract(Addr::unchecked(SOMEBODY), dao_addr.clone(), &closing, &[])
             .unwrap();
+
         assert_eq!(
             res.custom_attrs(1),
             [
@@ -1072,335 +1269,6 @@ mod tests {
             .execute_contract(Addr::unchecked(SOMEBODY), dao_addr, &closing, &[])
             .unwrap_err();
         assert_eq!(ContractError::WrongCloseStatus {}, err.downcast().unwrap());
-    }
-
-    // uses the power from the beginning of the voting period
-    // shows that one proposals can trigger the action
-    #[test]
-    fn execute_group_changes_from_proposal() {
-        let init_funds = coins(10, "BTC");
-        let mut app = mock_app(&init_funds);
-
-        let required_weight = 4;
-        let voting_period = Duration::Time(20000);
-        let dao_addr =
-            setup_test_case_fixed(&mut app, required_weight, voting_period, init_funds, true);
-
-        let res: GroupResponse = app
-            .wrap()
-            .query_wasm_smart(dao_addr.clone(), &QueryMsg::Group {})
-            .unwrap();
-
-        // Start a proposal to remove VOTER3 from the set
-        let update_msg = Cw4GroupContract(res.group)
-            .update_members(vec![VOTER3.into()], vec![])
-            .unwrap();
-        let update_proposal = ExecuteMsg::Propose {
-            title: "Kick out VOTER3".to_string(),
-            description: "He's trying to steal our money".to_string(),
-            msgs: vec![update_msg],
-            latest: None,
-        };
-        let res = app
-            .execute_contract(
-                Addr::unchecked(VOTER1),
-                dao_addr.clone(),
-                &update_proposal,
-                &[],
-            )
-            .unwrap();
-        // Get the proposal id from the logs
-        let update_proposal_id: u64 = res.custom_attrs(1)[2].value.parse().unwrap();
-
-        // next block...
-        app.update_block(|b| b.height += 1);
-
-        // VOTER1 starts a proposal to send some tokens
-        let cash_proposal = pay_somebody_proposal();
-        let res = app
-            .execute_contract(
-                Addr::unchecked(VOTER1),
-                dao_addr.clone(),
-                &cash_proposal,
-                &[],
-            )
-            .unwrap();
-        // Get the proposal id from the logs
-        let cash_proposal_id: u64 = res.custom_attrs(1)[2].value.parse().unwrap();
-        assert_ne!(cash_proposal_id, update_proposal_id);
-
-        // query proposal state
-        let prop_status = |app: &App, proposal_id: u64| -> Status {
-            let query_prop = QueryMsg::Proposal { proposal_id };
-            let prop: ProposalResponse =
-                app.wrap().query_wasm_smart(&dao_addr, &query_prop).unwrap();
-            prop.status
-        };
-        assert_eq!(prop_status(&app, cash_proposal_id), Status::Open);
-        assert_eq!(prop_status(&app, update_proposal_id), Status::Open);
-
-        // next block...
-        app.update_block(|b| b.height += 1);
-
-        // Pass and execute first proposal
-        let yes_vote = ExecuteMsg::Vote {
-            proposal_id: update_proposal_id,
-            vote: Vote::Yes,
-        };
-        app.execute_contract(Addr::unchecked(VOTER4), dao_addr.clone(), &yes_vote, &[])
-            .unwrap();
-
-        // TODO: group cannot update its members without changing the admin to the caller
-
-        let execution = ExecuteMsg::Execute {
-            proposal_id: update_proposal_id,
-        };
-        app.execute_contract(Addr::unchecked(VOTER4), dao_addr.clone(), &execution, &[])
-            .unwrap();
-
-        // ensure that the update_proposal is executed, but the other unchanged
-        assert_eq!(prop_status(&app, update_proposal_id), Status::Executed);
-        assert_eq!(prop_status(&app, cash_proposal_id), Status::Open);
-
-        // next block...
-        app.update_block(|b| b.height += 1);
-
-        // VOTER3 can still pass the cash proposal
-        // voting on it fails
-        let yes_vote = ExecuteMsg::Vote {
-            proposal_id: cash_proposal_id,
-            vote: Vote::Yes,
-        };
-        app.execute_contract(Addr::unchecked(VOTER3), dao_addr.clone(), &yes_vote, &[])
-            .unwrap();
-        assert_eq!(prop_status(&app, cash_proposal_id), Status::Passed);
-
-        // but cannot open a new one
-        let cash_proposal = pay_somebody_proposal();
-        let err = app
-            .execute_contract(
-                Addr::unchecked(VOTER3),
-                dao_addr.clone(),
-                &cash_proposal,
-                &[],
-            )
-            .unwrap_err();
-        assert_eq!(ContractError::Unauthorized {}, err.downcast().unwrap());
-    }
-
-    // uses the power from the beginning of the voting period
-    #[test]
-    fn percentage_handles_group_changes() {
-        let init_funds = coins(10, "BTC");
-        let mut app = mock_app(&init_funds);
-
-        // 51% required, which is 12 of the initial 24
-        let threshold = Threshold::ThresholdQuorum {
-            threshold: Decimal::percent(51),
-            quorum: Decimal::percent(1),
-        };
-        let voting_period = Duration::Time(20000);
-        let dao_addr = setup_test_case(&mut app, threshold, voting_period, init_funds, true, None);
-
-        // VOTER3 starts a proposal to send some tokens (3/12 votes)
-        let proposal = pay_somebody_proposal();
-        let res = app
-            .execute_contract(Addr::unchecked(VOTER3), dao_addr.clone(), &proposal, &[])
-            .unwrap();
-        // Get the proposal id from the logs
-        let proposal_id: u64 = res.custom_attrs(1)[2].value.parse().unwrap();
-        let prop_status = |app: &App| -> Status {
-            let query_prop = QueryMsg::Proposal { proposal_id };
-            let prop: ProposalResponse =
-                app.wrap().query_wasm_smart(&dao_addr, &query_prop).unwrap();
-            prop.status
-        };
-
-        // 3/12 votes
-        assert_eq!(prop_status(&app), Status::Open);
-
-        // a few blocks later...
-        app.update_block(|block| block.height += 2);
-
-        let res: GroupResponse = app
-            .wrap()
-            .query_wasm_smart(dao_addr.clone(), &QueryMsg::Group {})
-            .unwrap();
-
-        // admin changes the group (3 -> 0, 2 -> 9, 0 -> 29) - total = 56, require 29 to pass
-        let newbie: &str = "newbie";
-        let update_msg = Cw4GroupContract(res.group)
-            .update_members(
-                vec![VOTER3.into()],
-                vec![member(VOTER2, 9), member(newbie, 29)],
-            )
-            .unwrap();
-        let update_proposal = ExecuteMsg::Propose {
-            title: "Change group".to_string(),
-            description: "Update membership".to_string(),
-            msgs: vec![update_msg],
-            latest: None,
-        };
-        let res = app
-            .execute_contract(
-                Addr::unchecked(VOTER1),
-                dao_addr.clone(),
-                &update_proposal,
-                &[],
-            )
-            .unwrap();
-        // Get the proposal id from the logs
-        let update_proposal_id: u64 = res.custom_attrs(1)[2].value.parse().unwrap();
-
-        // next block...
-        app.update_block(|b| b.height += 1);
-
-        // Pass and execute first proposal
-        let yes_vote = ExecuteMsg::Vote {
-            proposal_id: update_proposal_id,
-            vote: Vote::Yes,
-        };
-        app.execute_contract(Addr::unchecked(VOTER4), dao_addr.clone(), &yes_vote, &[])
-            .unwrap();
-        let execution = ExecuteMsg::Execute {
-            proposal_id: update_proposal_id,
-        };
-        app.execute_contract(Addr::unchecked(VOTER4), dao_addr.clone(), &execution, &[])
-            .unwrap();
-
-        // a few blocks later...
-        app.update_block(|block| block.height += 3);
-
-        // VOTER2 votes according to original weights: 3 + 2 = 5 / 12 => Open
-        // with updated weights, it would be 3 + 9 = 12 / 12 => Passed
-        let yes_vote = ExecuteMsg::Vote {
-            proposal_id,
-            vote: Vote::Yes,
-        };
-        app.execute_contract(Addr::unchecked(VOTER2), dao_addr.clone(), &yes_vote, &[])
-            .unwrap();
-        assert_eq!(prop_status(&app), Status::Open);
-
-        // new proposal can be passed single-handedly by newbie
-        let proposal = pay_somebody_proposal();
-        let res = app
-            .execute_contract(Addr::unchecked(newbie), dao_addr.clone(), &proposal, &[])
-            .unwrap();
-        // Get the proposal id from the logs
-        let proposal_id2: u64 = res.custom_attrs(1)[2].value.parse().unwrap();
-
-        // check proposal2 status
-        let query_prop = QueryMsg::Proposal {
-            proposal_id: proposal_id2,
-        };
-        let prop: ProposalResponse = app.wrap().query_wasm_smart(&dao_addr, &query_prop).unwrap();
-        assert_eq!(Status::Passed, prop.status);
-    }
-
-    // uses the power from the beginning of the voting period
-    #[test]
-    fn quorum_handles_group_changes() {
-        let init_funds = coins(10, "BTC");
-        let mut app = mock_app(&init_funds);
-
-        // 33% required for quora, which is 8 of the initial 24
-        // 50% yes required to pass early (12 of the initial 24)
-        let voting_period = Duration::Time(20000);
-        let dao_addr = setup_test_case(
-            &mut app,
-            Threshold::ThresholdQuorum {
-                threshold: Decimal::percent(51),
-                quorum: Decimal::percent(33),
-            },
-            voting_period,
-            init_funds,
-            true,
-            None,
-        );
-
-        // VOTER3 starts a proposal to send some tokens (3 votes)
-        let proposal = pay_somebody_proposal();
-        let res = app
-            .execute_contract(Addr::unchecked(VOTER3), dao_addr.clone(), &proposal, &[])
-            .unwrap();
-        // Get the proposal id from the logs
-        let proposal_id: u64 = res.custom_attrs(1)[2].value.parse().unwrap();
-        let prop_status = |app: &App| -> Status {
-            let query_prop = QueryMsg::Proposal { proposal_id };
-            let prop: ProposalResponse =
-                app.wrap().query_wasm_smart(&dao_addr, &query_prop).unwrap();
-            prop.status
-        };
-
-        // 3/12 votes - not expired
-        assert_eq!(prop_status(&app), Status::Open);
-
-        // a few blocks later...
-        app.update_block(|block| block.height += 2);
-
-        let res: GroupResponse = app
-            .wrap()
-            .query_wasm_smart(dao_addr.clone(), &QueryMsg::Group {})
-            .unwrap();
-
-        // admin changes the group (3 -> 0, 2 -> 9, 0 -> 29) - total = 56, require 29 to pass
-        let newbie: &str = "newbie";
-        let update_msg = Cw4GroupContract(res.group)
-            .update_members(
-                vec![VOTER3.into()],
-                vec![member(VOTER2, 9), member(newbie, 29)],
-            )
-            .unwrap();
-        let update_proposal = ExecuteMsg::Propose {
-            title: "Change group".to_string(),
-            description: "Update membership".to_string(),
-            msgs: vec![update_msg],
-            latest: None,
-        };
-        let res = app
-            .execute_contract(
-                Addr::unchecked(VOTER1),
-                dao_addr.clone(),
-                &update_proposal,
-                &[],
-            )
-            .unwrap();
-        // Get the proposal id from the logs
-        let update_proposal_id: u64 = res.custom_attrs(1)[2].value.parse().unwrap();
-
-        // next block...
-        app.update_block(|b| b.height += 1);
-
-        // Pass and execute first proposal
-        let yes_vote = ExecuteMsg::Vote {
-            proposal_id: update_proposal_id,
-            vote: Vote::Yes,
-        };
-        app.execute_contract(Addr::unchecked(VOTER4), dao_addr.clone(), &yes_vote, &[])
-            .unwrap();
-        let execution = ExecuteMsg::Execute {
-            proposal_id: update_proposal_id,
-        };
-        app.execute_contract(Addr::unchecked(VOTER4), dao_addr.clone(), &execution, &[])
-            .unwrap();
-
-        // a few blocks later...
-        app.update_block(|block| block.height += 3);
-
-        // VOTER2 votes yes, according to original weights: 3 yes, 2 no, 5 total (will fail when expired)
-        // with updated weights, it would be 3 yes, 9 yes, 11 total (will pass when expired)
-        let yes_vote = ExecuteMsg::Vote {
-            proposal_id,
-            vote: Vote::Yes,
-        };
-        app.execute_contract(Addr::unchecked(VOTER2), dao_addr.clone(), &yes_vote, &[])
-            .unwrap();
-        // not expired yet
-        assert_eq!(prop_status(&app), Status::Open);
-
-        // wait until the vote is over, and see it was rejected
-        app.update_block(expire(voting_period));
-        assert_eq!(prop_status(&app), Status::Rejected);
     }
 
     #[test]
@@ -1420,7 +1288,6 @@ mod tests {
             },
             voting_period,
             init_funds,
-            false,
             None,
         );
 
@@ -1516,14 +1383,14 @@ mod tests {
         let init_funds = coins(10, "BTC");
         let mut app = mock_app(&init_funds);
 
-        let collection_addr = setup_test_collection(&mut app);
-
         let threshold = Threshold::ThresholdQuorum {
             threshold: Decimal::percent(51),
             quorum: Decimal::percent(1),
         };
         let voting_period = Duration::Time(2000000);
-        let dao_addr = setup_test_case(&mut app, threshold, voting_period, init_funds, false, None);
+        let dao_addr = setup_test_case(&mut app, threshold, voting_period, init_funds, None);
+
+        let collection_addr = setup_test_collection(&mut app);
 
         // ensure we have cash to cover the proposal
         let contract_bal = app.wrap().query_balance(&dao_addr, "BTC").unwrap();
@@ -1555,81 +1422,25 @@ mod tests {
         assert_eq!(dao_addr, res.owner);
     }
 
-    fn proposal_nft_transfer_info(
-        collection_addr: String,
-    ) -> (Vec<CosmosMsg<Empty>>, String, String) {
-        let transfer_msg: Cw721ExecuteMsg<Extension, Extension> = Cw721ExecuteMsg::TransferNft {
-            recipient: SOMEBODY.into(),
-            token_id: TOKEN_ID.into(),
-        };
-        let wasm_msg = WasmMsg::Execute {
-            contract_addr: collection_addr,
-            msg: to_binary(&transfer_msg).unwrap(),
-            funds: vec![],
-        };
-
-        let msgs = vec![wasm_msg.into()];
-        let title = "Transfer NFT".to_string();
-        let description = "Should we transfer this?".to_string();
-        (msgs, title, description)
-    }
-
-    fn transfer_nft_proposal(collection_addr: String) -> ExecuteMsg {
-        let (msgs, title, description) = proposal_nft_transfer_info(collection_addr);
-        ExecuteMsg::Propose {
-            title,
-            description,
-            msgs,
-            latest: None,
-        }
-    }
-
-    #[test]
-    fn proposal_nft_transfer_works() {
-        let mut app = mock_app(&[]);
-
-        let collection_addr = setup_test_collection(&mut app);
-
-        let threshold = Threshold::ThresholdQuorum {
-            threshold: Decimal::percent(51),
-            quorum: Decimal::percent(1),
-        };
-        let voting_period = Duration::Time(2000000);
-        let dao_addr = setup_test_case(&mut app, threshold, voting_period, vec![], false, None);
-
-        // transfer NFT from collection to DAO
-        let transfer_msg: Cw721ExecuteMsg<Extension, Extension> = Cw721ExecuteMsg::TransferNft {
-            recipient: dao_addr.to_string(),
-            token_id: TOKEN_ID.into(),
-        };
-        app.execute_contract(
-            Addr::unchecked(OWNER),
-            collection_addr.clone(),
-            &transfer_msg,
-            &[],
-        )
-        .unwrap();
-
-        // create nft transfer proposal with 0 vote power
-        let proposal = transfer_nft_proposal(collection_addr.to_string());
+    #[track_caller]
+    fn propose_pass_execute(app: &mut App, dao_addr: Addr, msg: WasmMsg) {
+        // create proposal
         let res = app
-            .execute_contract(Addr::unchecked(OWNER), dao_addr.clone(), &proposal, &[])
+            .execute_contract(
+                Addr::unchecked(OWNER),
+                dao_addr.clone(),
+                &ExecuteMsg::Propose {
+                    title: "title".to_string(),
+                    description: "description".to_string(),
+                    msgs: vec![CosmosMsg::Wasm(msg)],
+                    latest: None,
+                },
+                &[],
+            )
             .unwrap();
-
-        // Get the proposal id from the logs
         let proposal_id: u64 = res.custom_attrs(1)[2].value.parse().unwrap();
 
-        // Only Passed can be executed
-        let execution = ExecuteMsg::Execute { proposal_id };
-        let err = app
-            .execute_contract(Addr::unchecked(OWNER), dao_addr.clone(), &execution, &[])
-            .unwrap_err();
-        assert_eq!(
-            ContractError::WrongExecuteStatus {},
-            err.downcast().unwrap()
-        );
-
-        // Vote it, so it passes
+        // Vote
         let vote = ExecuteMsg::Vote {
             proposal_id,
             vote: Vote::Yes,
@@ -1654,7 +1465,8 @@ mod tests {
             .unwrap_err();
         assert_eq!(ContractError::WrongCloseStatus {}, err.downcast().unwrap());
 
-        // Execute works. Anybody can execute Passed proposals
+        // Execute
+        let execution = ExecuteMsg::Execute { proposal_id };
         let res = app
             .execute_contract(Addr::unchecked(SOMEBODY), dao_addr.clone(), &execution, &[])
             .unwrap();
@@ -1665,6 +1477,53 @@ mod tests {
                 ("sender", SOMEBODY),
                 ("proposal_id", proposal_id.to_string().as_str()),
             ],
+        );
+
+        // Trying to execute something that was already executed fails
+        let err = app
+            .execute_contract(Addr::unchecked(SOMEBODY), dao_addr, &execution, &[])
+            .unwrap_err();
+        assert_eq!(
+            ContractError::WrongExecuteStatus {},
+            err.downcast().unwrap()
+        );
+    }
+
+    #[test]
+    fn proposal_nft_transfer_works() {
+        let mut app = mock_app(&[]);
+
+        let threshold = Threshold::AbsoluteCount { weight: 1 };
+        let voting_period = Duration::Time(2000000);
+        let dao_addr = setup_test_case(&mut app, threshold, voting_period, vec![], None);
+
+        let collection_addr = setup_test_collection(&mut app);
+
+        // transfer NFT from collection to DAO
+        let transfer_msg: Cw721ExecuteMsg<Extension, Extension> = Cw721ExecuteMsg::TransferNft {
+            recipient: dao_addr.to_string(),
+            token_id: TOKEN_ID.into(),
+        };
+        app.execute_contract(
+            Addr::unchecked(OWNER),
+            collection_addr.clone(),
+            &transfer_msg,
+            &[],
+        )
+        .unwrap();
+
+        propose_pass_execute(
+            &mut app,
+            dao_addr,
+            WasmMsg::Execute {
+                contract_addr: collection_addr.to_string(),
+                msg: to_binary(&Cw721ExecuteMsg::TransferNft::<Extension, Extension> {
+                    recipient: SOMEBODY.into(),
+                    token_id: TOKEN_ID.into(),
+                })
+                .unwrap(),
+                funds: vec![],
+            },
         );
 
         // verify NFT was transfered
@@ -1679,20 +1538,138 @@ mod tests {
             )
             .unwrap();
         assert_eq!(SOMEBODY, res.owner);
+    }
 
-        // In passing: Try to close Executed fails
-        let err = app
-            .execute_contract(Addr::unchecked(OWNER), dao_addr.clone(), &closing, &[])
-            .unwrap_err();
-        assert_eq!(ContractError::WrongCloseStatus {}, err.downcast().unwrap());
+    #[test]
+    fn dao_launches_collection() {
+        let mut app = mock_app(&[]);
 
-        // Trying to execute something that was already executed fails
-        let err = app
-            .execute_contract(Addr::unchecked(SOMEBODY), dao_addr, &execution, &[])
-            .unwrap_err();
-        assert_eq!(
-            ContractError::WrongExecuteStatus {},
-            err.downcast().unwrap()
+        let threshold = Threshold::AbsoluteCount { weight: 1 };
+        let voting_period = Duration::Time(2000000);
+        let dao_addr = setup_test_case(&mut app, threshold, voting_period, vec![], None);
+
+        // init collection
+        propose_pass_execute(
+            &mut app,
+            dao_addr.clone(),
+            WasmMsg::Instantiate {
+                admin: None,
+                code_id: 3,
+                label: "label".to_string(),
+                msg: to_binary(&Cw721InstantiateMsg {
+                    name: "dao collection".to_string(),
+                    symbol: "DAO NFT".to_string(),
+                    minter: dao_addr.to_string(),
+                })
+                .unwrap(),
+                funds: vec![],
+            },
         );
+
+        // verify collection exists
+        let res: ContractInfoResponse = app
+            .wrap()
+            .query_wasm_smart("contract4", &Cw721QueryMsg::ContractInfo {})
+            .unwrap();
+        assert_eq!(res.name, "dao collection");
+
+        // mint NFT
+        propose_pass_execute(
+            &mut app,
+            dao_addr,
+            WasmMsg::Execute {
+                contract_addr: "contract4".to_string(),
+                msg: to_binary(&Cw721ExecuteMsg::Mint::<Extension, Extension>(MintMsg::<
+                    Extension,
+                > {
+                    token_id: "token1".to_string(),
+                    owner: VOTER1.to_string(),
+                    token_uri: None,
+                    extension: None,
+                }))
+                .unwrap(),
+                funds: vec![],
+            },
+        );
+
+        // verify minted
+        let res: OwnerOfResponse = app
+            .wrap()
+            .query_wasm_smart(
+                "contract4",
+                &Cw721QueryMsg::OwnerOf {
+                    token_id: "token1".to_string(),
+                    include_expired: None,
+                },
+            )
+            .unwrap();
+        assert_eq!(res.owner, VOTER1);
+    }
+
+    #[test]
+    fn update_dao_metadata_works() {
+        let mut app = mock_app(&[]);
+
+        let threshold = Threshold::AbsoluteCount { weight: 1 };
+        let voting_period = Duration::Time(2000000);
+        let dao_addr = setup_test_case(&mut app, threshold, voting_period, vec![], None);
+
+        let update_metadata = ExecuteMsg::UpdateMetadata {
+            name: "name2".to_string(),
+            description: "description2".to_string(),
+            image: "image2".to_string(),
+        };
+        let wasm_msg = WasmMsg::Execute {
+            contract_addr: dao_addr.to_string(),
+            msg: to_binary(&update_metadata).unwrap(),
+            funds: vec![],
+        };
+
+        // create update metadata proposal
+        let res = app
+            .execute_contract(
+                Addr::unchecked(VOTER1),
+                dao_addr.clone(),
+                &ExecuteMsg::Propose {
+                    title: "proposal_title".to_string(),
+                    description: "proposal_description".to_string(),
+                    msgs: vec![wasm_msg.into()],
+                    latest: None,
+                },
+                &[],
+            )
+            .unwrap();
+        let proposal_id: u64 = res.custom_attrs(1)[2].value.parse().unwrap();
+
+        // Vote
+        app.execute_contract(
+            Addr::unchecked(VOTER4),
+            dao_addr.clone(),
+            &ExecuteMsg::Vote {
+                proposal_id,
+                vote: Vote::Yes,
+            },
+            &[],
+        )
+        .unwrap();
+
+        // Execute
+        app.execute_contract(
+            Addr::unchecked(SOMEBODY),
+            dao_addr.clone(),
+            &ExecuteMsg::Execute { proposal_id },
+            &[],
+        )
+        .unwrap();
+
+        // verify metadata was updated
+        let res: MetadataResponse = app
+            .wrap()
+            .query_wasm_smart(dao_addr, &QueryMsg::Metadata {})
+            .unwrap();
+
+        assert_eq!("name2", res.name);
+        assert_eq!("description2", res.description);
+        assert_eq!("image2", res.image);
     }
 }

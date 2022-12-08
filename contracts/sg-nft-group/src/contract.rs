@@ -3,31 +3,37 @@ use std::marker::PhantomData;
 #[cfg(not(feature = "library"))]
 use cosmwasm_std::entry_point;
 use cosmwasm_std::{
-    to_binary, Addr, Binary, Deps, DepsMut, Empty, Env, MessageInfo, Order, Response, StdResult,
-    Storage, SubMsg, WasmMsg,
+    from_binary, to_binary, Addr, Binary, Deps, DepsMut, Empty, Env, MessageInfo, Order, Reply,
+    Response, StdResult, Storage, SubMsg, WasmMsg,
 };
 
 use cw2::set_contract_version;
 use cw4::{Member, MemberListResponse, MemberResponse, TotalWeightResponse};
 use cw721::Cw721ReceiveMsg;
 use cw721_base::helpers::Cw721Contract;
-use cw721_base::{ExecuteMsg as Cw721BaseExecuteMsg, MintMsg as Cw721BaseMintMsg};
+use cw721_base::{
+    msg::InstantiateMsg as Cw721InstantiateMsg, ExecuteMsg as Cw721BaseExecuteMsg,
+    MintMsg as Cw721BaseMintMsg,
+};
 use cw_storage_plus::Bound;
-use cw_utils::maybe_addr;
+use cw_utils::{maybe_addr, parse_reply_instantiate_data};
+use sg_daos::ContractInstantiateMsg;
 
 use crate::error::ContractError;
 use crate::msg::{ExecuteMsg, InstantiateMsg, QueryMsg};
-use crate::state::{Config, COLLECTION, CONFIG, MEMBERS, TOTAL};
+use crate::state::{Config, CONFIG, MEMBERS, MEMBER_COLLECTION, TOTAL};
 
 // version info for migration info
 const CONTRACT_NAME: &str = "crates.io:sg-nft-group";
 const CONTRACT_VERSION: &str = env!("CARGO_PKG_VERSION");
 
+const INIT_REPLY_ID: u64 = 1;
+
 // Instantiate a group for the specified collection
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn instantiate(
     deps: DepsMut,
-    _env: Env,
+    env: Env,
     _info: MessageInfo,
     msg: InstantiateMsg,
 ) -> Result<Response, ContractError> {
@@ -40,7 +46,38 @@ pub fn instantiate(
     CONFIG.save(deps.storage, &config)?;
     TOTAL.save(deps.storage, &0)?;
 
-    Ok(Response::default())
+    let mut cw721_init_msg: Cw721InstantiateMsg = from_binary(&msg.cw721_init_msg.msg)?;
+    cw721_init_msg.minter = env.contract.address.to_string();
+
+    let instantiate_msg = ContractInstantiateMsg {
+        code_id: msg.cw721_init_msg.code_id,
+        admin: msg.cw721_init_msg.admin,
+        label: msg.cw721_init_msg.label,
+        msg: to_binary(&cw721_init_msg).unwrap(),
+    };
+    let submsg = SubMsg::reply_always(
+        instantiate_msg.into_wasm_msg(env.contract.address),
+        INIT_REPLY_ID,
+    );
+
+    Ok(Response::default().add_submessage(submsg))
+}
+
+#[cfg_attr(not(feature = "library"), entry_point)]
+pub fn reply(deps: DepsMut, _env: Env, msg: Reply) -> Result<Response, ContractError> {
+    if msg.id != INIT_REPLY_ID {
+        return Err(ContractError::InvalidReplyID {});
+    }
+
+    let reply = parse_reply_instantiate_data(msg);
+    match reply {
+        Ok(res) => {
+            MEMBER_COLLECTION.save(deps.storage, &Addr::unchecked(res.contract_address))?;
+
+            Ok(Response::default().add_attribute("action", "reply_on_success"))
+        }
+        Err(_) => Err(ContractError::ReplyOnSuccess {}),
+    }
 }
 
 // And declare a custom Error variant for the ones where you will want to make use of it
@@ -100,7 +137,7 @@ pub fn execute_remove(
     only_owner(
         deps.as_ref(),
         &member,
-        &COLLECTION.load(deps.storage)?,
+        &MEMBER_COLLECTION.load(deps.storage)?,
         &token_id,
     )?;
 
@@ -158,7 +195,7 @@ fn join(store: &dyn Storage, token_id: &str, owner: &str) -> StdResult<SubMsg> {
     let msg = Cw721BaseExecuteMsg::Mint::<Empty, Empty>(mint_msg);
 
     let msg = WasmMsg::Execute {
-        contract_addr: COLLECTION.load(store)?.to_string(),
+        contract_addr: MEMBER_COLLECTION.load(store)?.to_string(),
         msg: to_binary(&msg)?,
         funds: vec![],
     };
@@ -179,7 +216,7 @@ fn leave(store: &dyn Storage, token_id: &str, member: &str) -> StdResult<Vec<Sub
     };
 
     let burn_msg = WasmMsg::Execute {
-        contract_addr: COLLECTION.load(store)?.to_string(),
+        contract_addr: MEMBER_COLLECTION.load(store)?.to_string(),
         msg: to_binary(&Cw721BaseExecuteMsg::Burn::<Empty, Empty> {
             token_id: token_id.to_string(),
         })?,
@@ -247,34 +284,4 @@ fn list_members(
         .collect::<StdResult<_>>()?;
 
     Ok(MemberListResponse { members })
-}
-
-#[cfg(test)]
-mod tests {
-    use cosmwasm_std::testing::{mock_dependencies, mock_env, mock_info};
-
-    use super::*;
-
-    const CW721_ADDRESS: &str = "wasm1234567890";
-
-    fn default_instantiate(deps: DepsMut) {
-        do_instantiate(deps, CW721_ADDRESS)
-    }
-
-    fn do_instantiate(deps: DepsMut, collection: &str) {
-        let msg = InstantiateMsg {
-            collection: collection.to_string(),
-        };
-        let info = mock_info("creator", &[]);
-        instantiate(deps, mock_env(), info, msg).unwrap();
-    }
-
-    #[test]
-    fn proper_instantiation() {
-        let mut deps = mock_dependencies();
-        default_instantiate(deps.as_mut());
-
-        let res = query_total_weight(deps.as_ref()).unwrap();
-        assert_eq!(0, res.weight);
-    }
 }

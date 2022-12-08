@@ -6,7 +6,7 @@
 
 import { CosmWasmClient, SigningCosmWasmClient, ExecuteResult } from "@cosmjs/cosmwasm-stargate";
 import { StdFee } from "@cosmjs/amino";
-import { Executor, Addr, Group, Admin, Binary, Duration, Threshold, Decimal, InstantiateMsg, Cw4Instantiate, ExecuteMsg, Expiration, Timestamp, Uint64, CosmosMsgForEmpty, BankMsg, Uint128, WasmMsg, Vote, Coin, Empty, QueryMsg, Cw4Contract, GroupResponse, Status, ThresholdResponse, ProposalListResponseForEmpty, ProposalResponseForEmpty, VoterListResponse, VoterDetail, VoteListResponse, VoteInfo, VoteResponse, VoterResponse } from "./SgGov.types";
+import { Executor, Addr, Group, Admin, Binary, Duration, Threshold, Decimal, InstantiateMsg, ContractInstantiateMsg, ExecuteMsg, Expiration, Timestamp, Uint64, CosmosMsgForEmpty, BankMsg, Uint128, WasmMsg, Vote, Coin, Empty, QueryMsg, Cw4Contract, GroupResponse, Status, ThresholdResponse, ProposalListResponseForEmpty, ProposalResponseForEmpty, VoterListResponse, VoterDetail, VoteListResponse, VoteInfo, MetadataResponse, VoteResponse, VoterResponse } from "./SgGov.types";
 export interface SgGovReadOnlyInterface {
   contractAddress: string;
   threshold: () => Promise<ThresholdResponse>;
@@ -58,6 +58,7 @@ export interface SgGovReadOnlyInterface {
     startAfter?: string;
   }) => Promise<VoterListResponse>;
   group: () => Promise<GroupResponse>;
+  metadata: () => Promise<MetadataResponse>;
 }
 export class SgGovQueryClient implements SgGovReadOnlyInterface {
   client: CosmWasmClient;
@@ -75,6 +76,7 @@ export class SgGovQueryClient implements SgGovReadOnlyInterface {
     this.voter = this.voter.bind(this);
     this.listVoters = this.listVoters.bind(this);
     this.group = this.group.bind(this);
+    this.metadata = this.metadata.bind(this);
   }
 
   threshold = async (): Promise<ThresholdResponse> => {
@@ -182,6 +184,11 @@ export class SgGovQueryClient implements SgGovReadOnlyInterface {
       group: {}
     });
   };
+  metadata = async (): Promise<MetadataResponse> => {
+    return this.client.queryContractSmart(this.contractAddress, {
+      metadata: {}
+    });
+  };
 }
 export interface SgGovInterface extends SgGovReadOnlyInterface {
   contractAddress: string;
@@ -214,6 +221,15 @@ export interface SgGovInterface extends SgGovReadOnlyInterface {
   }: {
     proposalId: number;
   }, fee?: number | StdFee | "auto", memo?: string, funds?: Coin[]) => Promise<ExecuteResult>;
+  updateMetadata: ({
+    description,
+    image,
+    name
+  }: {
+    description: string;
+    image: string;
+    name: string;
+  }, fee?: number | StdFee | "auto", memo?: string, funds?: Coin[]) => Promise<ExecuteResult>;
 }
 export class SgGovClient extends SgGovQueryClient implements SgGovInterface {
   client: SigningCosmWasmClient;
@@ -229,6 +245,7 @@ export class SgGovClient extends SgGovQueryClient implements SgGovInterface {
     this.vote = this.vote.bind(this);
     this.execute = this.execute.bind(this);
     this.close = this.close.bind(this);
+    this.updateMetadata = this.updateMetadata.bind(this);
   }
 
   propose = async ({
@@ -284,6 +301,23 @@ export class SgGovClient extends SgGovQueryClient implements SgGovInterface {
     return await this.client.execute(this.sender, this.contractAddress, {
       close: {
         proposal_id: proposalId
+      }
+    }, fee, memo, funds);
+  };
+  updateMetadata = async ({
+    description,
+    image,
+    name
+  }: {
+    description: string;
+    image: string;
+    name: string;
+  }, fee: number | StdFee | "auto" = "auto", memo?: string, funds?: Coin[]): Promise<ExecuteResult> => {
+    return await this.client.execute(this.sender, this.contractAddress, {
+      update_metadata: {
+        description,
+        image,
+        name
       }
     }, fee, memo, funds);
   };

@@ -20,4 +20,4 @@ pub const MEMBERS: SnapshotMap<&Addr, u64> = SnapshotMap::new(
 );
 
 /// Internal collection to store membership NFTs
-pub const COLLECTION: Item<Addr> = Item::new("collection");
+pub const MEMBER_COLLECTION: Item<Addr> = Item::new("collection");

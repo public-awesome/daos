@@ -7,7 +7,7 @@
 import { MsgExecuteContractEncodeObject } from "cosmwasm";
 import { MsgExecuteContract } from "cosmjs-types/cosmwasm/wasm/v1/tx";
 import { toUtf8 } from "@cosmjs/encoding";
-import { Executor, Addr, Group, Admin, Binary, Duration, Threshold, Decimal, InstantiateMsg, Cw4Instantiate, ExecuteMsg, Expiration, Timestamp, Uint64, CosmosMsgForEmpty, BankMsg, Uint128, WasmMsg, Vote, Coin, Empty, QueryMsg, Cw4Contract, GroupResponse, Status, ThresholdResponse, ProposalListResponseForEmpty, ProposalResponseForEmpty, VoterListResponse, VoterDetail, VoteListResponse, VoteInfo, VoteResponse, VoterResponse } from "./SgGov.types";
+import { Executor, Addr, Group, Admin, Binary, Duration, Threshold, Decimal, InstantiateMsg, ContractInstantiateMsg, ExecuteMsg, Expiration, Timestamp, Uint64, CosmosMsgForEmpty, BankMsg, Uint128, WasmMsg, Vote, Coin, Empty, QueryMsg, Cw4Contract, GroupResponse, Status, ThresholdResponse, ProposalListResponseForEmpty, ProposalResponseForEmpty, VoterListResponse, VoterDetail, VoteListResponse, VoteInfo, MetadataResponse, VoteResponse, VoterResponse } from "./SgGov.types";
 export interface SgGovMessage {
   contractAddress: string;
   sender: string;
@@ -39,6 +39,15 @@ export interface SgGovMessage {
   }: {
     proposalId: number;
   }, funds?: Coin[]) => MsgExecuteContractEncodeObject;
+  updateMetadata: ({
+    description,
+    image,
+    name
+  }: {
+    description: string;
+    image: string;
+    name: string;
+  }, funds?: Coin[]) => MsgExecuteContractEncodeObject;
 }
 export class SgGovMessageComposer implements SgGovMessage {
   sender: string;
@@ -51,6 +60,7 @@ export class SgGovMessageComposer implements SgGovMessage {
     this.vote = this.vote.bind(this);
     this.execute = this.execute.bind(this);
     this.close = this.close.bind(this);
+    this.updateMetadata = this.updateMetadata.bind(this);
   }
 
   propose = ({
@@ -135,6 +145,31 @@ export class SgGovMessageComposer implements SgGovMessage {
         msg: toUtf8(JSON.stringify({
           close: {
             proposal_id: proposalId
+          }
+        })),
+        funds
+      })
+    };
+  };
+  updateMetadata = ({
+    description,
+    image,
+    name
+  }: {
+    description: string;
+    image: string;
+    name: string;
+  }, funds?: Coin[]): MsgExecuteContractEncodeObject => {
+    return {
+      typeUrl: "/cosmwasm.wasm.v1.MsgExecuteContract",
+      value: MsgExecuteContract.fromPartial({
+        sender: this.sender,
+        contract: this.contractAddress,
+        msg: toUtf8(JSON.stringify({
+          update_metadata: {
+            description,
+            image,
+            name
           }
         })),
         funds
