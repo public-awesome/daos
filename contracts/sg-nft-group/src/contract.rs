@@ -72,12 +72,6 @@ pub fn reply(deps: DepsMut, _env: Env, msg: Reply) -> Result<Response, ContractE
     let reply = parse_reply_instantiate_data(msg);
     match reply {
         Ok(res) => {
-            // let group =
-            //     Cw4Contract(deps.api.addr_validate(&res.contract_address).map_err(|_| {
-            //         ContractError::InvalidGroup {
-            //             addr: res.contract_address.clone(),
-            //         }
-            //     })?);
             MEMBER_COLLECTION.save(deps.storage, &Addr::unchecked(res.contract_address))?;
 
             Ok(Response::default().add_attribute("action", "reply_on_success"))
