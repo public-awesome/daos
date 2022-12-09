@@ -3,8 +3,8 @@ use std::marker::PhantomData;
 #[cfg(not(feature = "library"))]
 use cosmwasm_std::entry_point;
 use cosmwasm_std::{
-    from_binary, to_binary, Addr, Binary, Deps, DepsMut, Empty, Env, MessageInfo, Order, Reply,
-    Response, StdResult, Storage, SubMsg, WasmMsg,
+    coins, from_binary, to_binary, Addr, BankMsg, Binary, Decimal, Deps, DepsMut, Empty, Env,
+    MessageInfo, Order, Reply, Response, StdResult, Storage, SubMsg, WasmMsg,
 };
 
 use cw2::set_contract_version;
@@ -24,8 +24,8 @@ use crate::msg::{ExecuteMsg, InstantiateMsg, QueryMsg};
 use crate::state::{Config, CONFIG, MEMBERS, MEMBER_COLLECTION, TOTAL};
 
 // version info for migration info
-const CONTRACT_NAME: &str = "crates.io:sg-nft-group";
-const CONTRACT_VERSION: &str = env!("CARGO_PKG_VERSION");
+pub const CONTRACT_NAME: &str = "crates.io:sg-nft-group";
+pub const CONTRACT_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 const INIT_REPLY_ID: u64 = 1;
 
@@ -91,6 +91,7 @@ pub fn execute(
     match msg {
         ExecuteMsg::ReceiveNft(msg) => execute_receive_nft(deps, env, info, msg),
         ExecuteMsg::Remove { token_id } => execute_remove(deps, env, info, token_id),
+        ExecuteMsg::Withdraw { denom } => execute_withdraw(deps, env, denom),
     }
 }
 
@@ -147,6 +148,33 @@ pub fn execute_remove(
         .add_submessages(leave(deps.storage, &token_id, member.as_ref())?)
         .add_attribute("action", "exit")
         .add_attribute("sender", member))
+}
+
+pub fn execute_withdraw(deps: DepsMut, env: Env, denom: String) -> Result<Response, ContractError> {
+    let total_weight = query_total_weight(deps.as_ref())?;
+    let members = list_members(deps.as_ref(), None, None)?;
+
+    let funds = deps.querier.query_balance(env.contract.address, denom)?;
+    if funds.amount.is_zero() {
+        return Err(ContractError::NoFunds {});
+    }
+
+    let msgs = members
+        .members
+        .iter()
+        .map(|member| {
+            let ratio = Decimal::from_ratio(member.weight, total_weight.weight);
+            let amount = funds.amount * ratio;
+            BankMsg::Send {
+                to_address: member.addr.clone(),
+                amount: coins(amount.u128(), funds.denom.clone()),
+            }
+        })
+        .collect::<Vec<_>>();
+
+    Ok(Response::new()
+        .add_attribute("action", "distribute")
+        .add_messages(msgs))
 }
 
 fn only_owner(

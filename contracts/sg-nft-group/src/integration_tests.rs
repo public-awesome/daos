@@ -4,11 +4,13 @@ mod tests {
 
     use crate::{
         contract::{execute, instantiate, query, reply, CONTRACT_NAME, CONTRACT_VERSION},
-        msg::{InstantiateMsg, QueryMsg},
+        msg::{ExecuteMsg, InstantiateMsg, QueryMsg},
     };
-    use cosmwasm_std::{from_binary, to_binary, Addr, Coin, Empty};
+    use cosmwasm_std::{
+        coin, from_binary, to_binary, Addr, BankMsg, Coin, CosmosMsg, Empty, Uint128,
+    };
     use cw2::{query_contract_info, ContractVersion};
-    use cw4::{Member, MemberListResponse};
+    use cw4::{Member, MemberListResponse, MemberResponse};
     use cw721_base::{
         msg::{ExecuteMsg as Cw721ExecuteMsg, InstantiateMsg as Cw721InstantiateMsg},
         Extension, MintMsg,
@@ -17,11 +19,8 @@ mod tests {
     use sg_daos::{Admin, ContractInstantiateMsg};
 
     const OWNER: &str = "admin0001";
-    const VOTER1: &str = "voter0001";
-    const VOTER2: &str = "voter0002";
-    const VOTER3: &str = "voter0003";
-    const VOTER4: &str = "voter0004";
-    const VOTER5: &str = "voter0005";
+    const MEMBER1: &str = "member0001";
+    const MEMBER2: &str = "member0002";
 
     const COLLECTION_CONTRACT: &str = "contract0";
     const SG_NFT_GROUP_CONTRACT: &str = "contract1";
@@ -34,14 +33,7 @@ mod tests {
     }
 
     fn members() -> Vec<Member> {
-        vec![
-            member(OWNER, 1),
-            member(VOTER1, 1),
-            member(VOTER2, 2),
-            member(VOTER3, 3),
-            member(VOTER4, 12),
-            member(VOTER5, 5),
-        ]
+        vec![member(OWNER, 1), member(MEMBER1, 1), member(MEMBER2, 2)]
     }
 
     pub fn contract_nft_group() -> Box<dyn Contract<Empty>> {
@@ -215,6 +207,72 @@ mod tests {
                 },
             )
             .unwrap();
-        assert_eq!(response.members.len(), 6);
+        assert_eq!(response.members.len(), 3);
+    }
+
+    fn setup(app: &mut App) -> Addr {
+        let init_group = sg_nft_group_init_info(app);
+        let init_msg: InstantiateMsg = from_binary(&init_group.msg).unwrap();
+        let group_addr = app
+            .instantiate_contract(
+                init_group.code_id,
+                Addr::unchecked(OWNER),
+                &init_msg,
+                &[],
+                init_group.label,
+                None,
+            )
+            .unwrap();
+
+        mint_and_join_nft_group(app, members());
+        group_addr
+    }
+
+    #[test]
+    fn test_withdrawal() {
+        let btc = coin(4, "BTC");
+        let mut app = mock_app(&[btc.clone()]);
+
+        let group_addr = setup(&mut app);
+
+        app.execute(
+            Addr::unchecked(OWNER),
+            CosmosMsg::Bank(BankMsg::Send {
+                to_address: group_addr.clone().into(),
+                amount: vec![btc.clone()],
+            }),
+        )
+        .unwrap();
+
+        let contract_bal = app.wrap().query_balance(&group_addr, "BTC").unwrap();
+        assert_eq!(contract_bal, btc);
+
+        app.execute_contract(
+            Addr::unchecked("anyone"),
+            group_addr.clone(),
+            &ExecuteMsg::Withdraw {
+                denom: "BTC".to_string(),
+            },
+            &[],
+        )
+        .unwrap();
+
+        let contract_bal = app.wrap().query_balance(&group_addr, "BTC").unwrap();
+        assert_eq!(contract_bal, coin(0, "BTC"));
+
+        for member in members() {
+            let response: MemberResponse = app
+                .wrap()
+                .query_wasm_smart(
+                    &group_addr,
+                    &QueryMsg::Member {
+                        addr: member.clone().addr,
+                        at_height: None,
+                    },
+                )
+                .unwrap();
+            let bal = app.wrap().query_balance(&member.addr, "BTC").unwrap();
+            assert_eq!(Uint128::from(response.weight.unwrap()), bal.amount);
+        }
     }
 }
