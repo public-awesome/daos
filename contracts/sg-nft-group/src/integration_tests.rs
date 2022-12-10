@@ -24,6 +24,7 @@ mod tests {
 
     const COLLECTION_CONTRACT: &str = "contract0";
     const SG_NFT_GROUP_CONTRACT: &str = "contract1";
+    const MEMBERSHIP_NFT_CONTRACT: &str = "contract2";
 
     fn member<T: Into<String>>(addr: T, weight: u64) -> Member {
         Member {
@@ -226,6 +227,64 @@ mod tests {
 
         mint_and_join_nft_group(app, members());
         group_addr
+    }
+
+    #[test]
+    fn only_owner_can_remove() {
+        let mut app = mock_app(&[]);
+        let group_addr = setup(&mut app);
+
+        let msg = QueryMsg::Member {
+            addr: OWNER.to_string(),
+            at_height: None,
+        };
+        let response: MemberResponse = app.wrap().query_wasm_smart(&group_addr, &msg).unwrap();
+        assert_eq!(response.weight.unwrap(), 1);
+
+        // trying to remove non-existant token ID
+        app.execute_contract(
+            Addr::unchecked("anyone"),
+            group_addr.clone(),
+            &ExecuteMsg::Remove {
+                token_id: "XXX".to_string(),
+            },
+            &[],
+        )
+        .unwrap_err();
+
+        // non owner trying to remove valid token ID
+        app.execute_contract(
+            Addr::unchecked("anyone"),
+            group_addr.clone(),
+            &ExecuteMsg::Remove {
+                token_id: "XXX".to_string(),
+            },
+            &[],
+        )
+        .unwrap_err();
+
+        let token_id = format!("{}/{}", OWNER, 0);
+        app.execute_contract(
+            Addr::unchecked(OWNER),
+            Addr::unchecked(MEMBERSHIP_NFT_CONTRACT),
+            &Cw721ExecuteMsg::<Empty, Empty>::Approve {
+                spender: group_addr.to_string(),
+                token_id: token_id.clone(),
+                expires: None,
+            },
+            &[],
+        )
+        .unwrap();
+        app.execute_contract(
+            Addr::unchecked(OWNER),
+            group_addr.clone(),
+            &ExecuteMsg::Remove { token_id },
+            &[],
+        )
+        .unwrap();
+
+        let response: MemberResponse = app.wrap().query_wasm_smart(&group_addr, &msg).unwrap();
+        assert_eq!(response.weight, Some(0));
     }
 
     #[test]
