@@ -28,6 +28,10 @@ export type ExecuteMsg = {
   remove: {
     token_id: string;
   };
+} | {
+  withdraw: {
+    denom: string;
+  };
 };
 export interface Cw721ReceiveMsg {
   msg: Binary;

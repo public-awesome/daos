@@ -140,6 +140,28 @@
           }
         },
         "additionalProperties": false
+      },
+      {
+        "description": "Withdraw accidentally deposited tokens to NFT holders",
+        "type": "object",
+        "required": [
+          "withdraw"
+        ],
+        "properties": {
+          "withdraw": {
+            "type": "object",
+            "required": [
+              "denom"
+            ],
+            "properties": {
+              "denom": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "additionalProperties": false
       }
     ],
     "definitions": {
