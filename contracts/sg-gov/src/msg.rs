@@ -18,7 +18,6 @@ pub struct InstantiateMsg {
     pub name: String,
     pub description: String,
     pub image: String,
-    /// this is the code id for the group contract that contains the member list
     pub group: Group,
     pub threshold: Threshold,
     pub max_voting_period: Duration,

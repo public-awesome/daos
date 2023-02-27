@@ -16,6 +16,8 @@ pub enum ExecuteMsg {
     ReceiveNft(Cw721ReceiveMsg),
     /// Remove NFT to reduce voting power or leave the group
     Remove { token_id: String },
+    /// Withdraw accidentally deposited tokens to NFT holders
+    Withdraw { denom: String },
 }
 
 #[cw_serde]

@@ -38,3 +38,6 @@ schemars = { workspace = true}
 serde = { workspace = true }
 sg-daos = { workspace = true }
 thiserror = { workspace = true }
+
+[dev-dependencies]
+cw-multi-test = "0.16.0"

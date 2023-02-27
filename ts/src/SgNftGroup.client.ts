@@ -95,6 +95,11 @@ export interface SgNftGroupInterface extends SgNftGroupReadOnlyInterface {
   }: {
     tokenId: string;
   }, fee?: number | StdFee | "auto", memo?: string, funds?: Coin[]) => Promise<ExecuteResult>;
+  withdraw: ({
+    denom
+  }: {
+    denom: string;
+  }, fee?: number | StdFee | "auto", memo?: string, funds?: Coin[]) => Promise<ExecuteResult>;
 }
 export class SgNftGroupClient extends SgNftGroupQueryClient implements SgNftGroupInterface {
   client: SigningCosmWasmClient;
@@ -108,6 +113,7 @@ export class SgNftGroupClient extends SgNftGroupQueryClient implements SgNftGrou
     this.contractAddress = contractAddress;
     this.receiveNft = this.receiveNft.bind(this);
     this.remove = this.remove.bind(this);
+    this.withdraw = this.withdraw.bind(this);
   }
 
   receiveNft = async ({
@@ -135,6 +141,17 @@ export class SgNftGroupClient extends SgNftGroupQueryClient implements SgNftGrou
     return await this.client.execute(this.sender, this.contractAddress, {
       remove: {
         token_id: tokenId
+      }
+    }, fee, memo, funds);
+  };
+  withdraw = async ({
+    denom
+  }: {
+    denom: string;
+  }, fee: number | StdFee | "auto" = "auto", memo?: string, funds?: Coin[]): Promise<ExecuteResult> => {
+    return await this.client.execute(this.sender, this.contractAddress, {
+      withdraw: {
+        denom
       }
     }, fee, memo, funds);
   };

@@ -26,6 +26,11 @@ export interface SgNftGroupMessage {
   }: {
     tokenId: string;
   }, funds?: Coin[]) => MsgExecuteContractEncodeObject;
+  withdraw: ({
+    denom
+  }: {
+    denom: string;
+  }, funds?: Coin[]) => MsgExecuteContractEncodeObject;
 }
 export class SgNftGroupMessageComposer implements SgNftGroupMessage {
   sender: string;
@@ -36,6 +41,7 @@ export class SgNftGroupMessageComposer implements SgNftGroupMessage {
     this.contractAddress = contractAddress;
     this.receiveNft = this.receiveNft.bind(this);
     this.remove = this.remove.bind(this);
+    this.withdraw = this.withdraw.bind(this);
   }
 
   receiveNft = ({
@@ -76,6 +82,25 @@ export class SgNftGroupMessageComposer implements SgNftGroupMessage {
         msg: toUtf8(JSON.stringify({
           remove: {
             token_id: tokenId
+          }
+        })),
+        funds
+      })
+    };
+  };
+  withdraw = ({
+    denom
+  }: {
+    denom: string;
+  }, funds?: Coin[]): MsgExecuteContractEncodeObject => {
+    return {
+      typeUrl: "/cosmwasm.wasm.v1.MsgExecuteContract",
+      value: MsgExecuteContract.fromPartial({
+        sender: this.sender,
+        contract: this.contractAddress,
+        msg: toUtf8(JSON.stringify({
+          withdraw: {
+            denom
           }
         })),
         funds
